@@ -1,0 +1,130 @@
+version: "3.9"
+
+networks:
+  security-scanner-net:
+    driver: bridge
+
+volumes:
+  pgdata:
+  redisdata:
+  reports_data:
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-security_scanner}
+      POSTGRES_USER: ${POSTGRES_USER:-scanner}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-scannerpass}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - security-scanner-net
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    expose:
+      - "5432"
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - security-scanner-net
+    volumes:
+      - redisdata:/data
+    expose:
+      - "6379"
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file:
+      - .env
+    command: >
+      bash -lc "
+      python backend/src/manage.py migrate --noinput &&
+      gunicorn api_server.asgi:application -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
+      "
+    volumes:
+      - ./:/app
+      - reports_data:/app/var
+    working_dir: /app
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - security-scanner-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/api/health/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file:
+      - .env
+    command: bash -lc "celery -A api_server worker --loglevel=INFO --concurrency=2"
+    volumes:
+      - ./:/app
+      - reports_data:/app/var
+    working_dir: /app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - security-scanner-net
+
+  beat:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file:
+      - .env
+    command: bash -lc "celery -A api_server beat --loglevel=INFO"
+    volumes:
+      - ./:/app
+      - reports_data:/app/var
+    working_dir: /app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      worker:
+        condition: service_started
+    networks:
+      - security-scanner-net
+
+  zap:
+    image: ghcr.io/zaproxy/zaproxy:stable
+    container_name: zap
+    command: ["zap.sh", "-daemon", "-port", "8090", "-host", "0.0.0.0", "-config", "api.key=$${ZAP_API_KEY:-changeme}"]
+    environment:
+      ZAP_API_KEY: ${ZAP_API_KEY:-changeme}
+    networks:
+      - security-scanner-net
+    expose:
+      - "8090"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8090/ || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 10

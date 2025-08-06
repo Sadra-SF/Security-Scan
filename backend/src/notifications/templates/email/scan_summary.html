@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>{{ project_name }} scan {{ scan.status|default:"completed" }}</title>
+  <style>
+    body { font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color: #1f2937; }
+    .wrap { max-width: 720px; margin: 0 auto; padding: 16px; }
+    h1 { font-size: 20px; margin: 0 0 8px; }
+    h2 { font-size: 16px; margin: 16px 0 8px; }
+    .meta { color: #6b7280; font-size: 12px; }
+    .summary { border: 1px solid #e5e7eb; border-radius: 6px; padding: 12px; margin: 12px 0; }
+    .kv { display: grid; grid-template-columns: 160px 1fr; row-gap: 4px; }
+    .sev { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 12px; color: white; margin-right: 6px; }
+    .sev.info { background: #6b7280; }
+    .sev.low { background: #3b82f6; }
+    .sev.medium { background: #f59e0b; }
+    .sev.high { background: #ef4444; }
+    .sev.critical { background: #7f1d1d; }
+    ul { padding-left: 18px; }
+    a { color: #2563eb; text-decoration: none; }
+    code { background: #f3f4f6; padding: 2px 4px; border-radius: 4px; }
+    .footer { color: #9ca3af; font-size: 12px; margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Scan {{ scan.status|default:"completed" }} — {{ project_name }}</h1>
+    <div class="meta">
+      Project: <strong>{{ project_name }}</strong> · Org: <strong>{{ organization_name }}</strong> ·
+      Target: <strong>{{ target_name }}</strong> · Scan ID: <code>{{ scan_id }}</code>
+    </div>
+
+    <div class="summary">
+      <div class="kv">
+        <div>Total findings</div><div><strong>{{ summary.total }}</strong></div>
+        <div>Scan API URL</div><div><a href="{{ api_scan_url }}">{{ api_scan_url }}</a></div>
+      </div>
+
+      <h2>By severity</h2>
+      <ul>
+        {% for sev, cnt in summary.by_severity.items %}
+          <li><span class="sev {{ sev|lower }}">{{ sev|title }}</span> {{ cnt }}</li>
+        {% endfor %}
+      </ul>
+
+      <h2>By category</h2>
+      <ul>
+        {% for cat, cnt in summary.by_category.items %}
+          <li>{{ cat }}: {{ cnt }}</li>
+        {% endfor %}
+      </ul>
+
+      <h2>Top findings</h2>
+      {% if summary.top_findings %}
+        <ul>
+          {% for f in summary.top_findings %}
+            <li><span class="sev {{ f.severity|lower }}">[{{ f.severity|title }}]</span> {{ f.title }} <code>{{ f.id }}</code></li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p>(Top findings not available in this build)</p>
+      {% endif %}
+    </div>
+
+    <div class="footer">
+      This is an automated notification from Security Scanner.
+    </div>
+  </div>
+</body>
+</html>

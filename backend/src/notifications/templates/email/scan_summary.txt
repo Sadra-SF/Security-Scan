@@ -1,0 +1,24 @@
+Subject: {{ project_name }} scan {{ scan.status|default:"completed" }} ({{ summary.total }} findings)
+
+Project: {{ project_name }} (Org: {{ organization_name }})
+Target: {{ target_name }}
+Scan ID: {{ scan_id }}
+Scan API URL: {{ api_scan_url }}
+
+Summary:
+  Total findings: {{ summary.total }}
+  By severity:
+{% for sev, cnt in summary.by_severity.items %}    - {{ sev|title }}: {{ cnt }}
+{% endfor %}
+  By category (top):
+{% for cat, cnt in summary.by_category.items %}    - {{ cat }}: {{ cnt }}
+{% endfor %}
+
+Top findings:
+{% if summary.top_findings %}{% for f in summary.top_findings %}
+  - [{{ f.severity|title }}] {{ f.title }} ({{ f.id }})
+{% endfor %}{% else %}
+  - (Top findings not available in this build)
+{% endif %}
+
+This is an automated notification from Security Scanner.

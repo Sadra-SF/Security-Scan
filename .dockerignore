@@ -1,0 +1,22 @@
+# Docker build context ignores
+.git
+.gitignore
+.vscode
+.idea
+__pycache__/
+*.py[cod]
+*.log
+.env
+.env.*
+!.env.example
+node_modules/
+dist/
+build/
+.coverage
+.pytest_cache/
+.tox/
+.nox/
+.cache/
+site/
+staticfiles/
+media/

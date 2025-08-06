@@ -1,0 +1,50 @@
+{% extends "reports/pdf/base.html" %}
+{% block title %}{{ report.title|default:"Security Scanner Report" }}{% endblock %}
+{% block content %}
+  {% for severity, cats in grouped.items %}
+    <section class="section">
+      <h2>
+        <span class="severity-badge sev-{{ severity }}">{{ severity|upper }}</span>
+      </h2>
+      {% for category, items in cats.items %}
+        <h3>Category: {{ category }}</h3>
+        {% for f in items %}
+          <div class="finding">
+            <div class="kv"><strong>Title:</strong> {{ f.title }}</div>
+            <div class="kv"><strong>Status:</strong> {{ f.status }}</div>
+            <div class="kv"><strong>Target:</strong> {{ f.target.name }}</div>
+            {% if f.scan_id %}<div class="kv"><strong>Scan:</strong> {{ f.scan_id }}</div>{% endif %}
+            <div class="kv"><strong>First seen:</strong> {{ f.first_seen_at }}</div>
+            <div class="kv"><strong>Last seen:</strong> {{ f.last_seen_at }}</div>
+            {% if f.metadata.category %}<div class="kv"><strong>Category:</strong> {{ f.metadata.category }}</div>{% endif %}
+            {% if f.locations and f.locations.0 %}
+              {% with loc=f.locations.0 %}
+                <div class="kv"><strong>Location:</strong>
+                  {% if loc.url %}{{ loc.url }}{% elif loc.file %}{{ loc.file }}{% else %}{{ loc }}{% endif %}
+                  {% if loc.param %} (param={{ loc.param }}){% endif %}
+                </div>
+              {% endwith %}
+            {% endif %}
+            <div class="kv"><strong>Description:</strong> {{ f.description|default:"-" }}</div>
+            <div class="kv"><strong>Plugin:</strong> {{ f.metadata.plugin_key|default:f.metadata.plugin|default:"-" }}</div>
+
+            <div class="tags">
+              {% comment %}Compliance tags: support either f.compliance_tags or reverse set{% endcomment %}
+              {% if f.compliance_tags.all %}
+                {% for t in f.compliance_tags.all %}
+                  <span class="tag">{{ t.framework|default:"" }}{% if t.framework %}:{% endif %}{{ t.slug|default:t.name }}</span>
+                {% endfor %}
+              {% elif f.compliancetag_set.all %}
+                {% for t in f.compliancetag_set.all %}
+                  <span class="tag">{{ t.framework|default:"" }}{% if t.framework %}:{% endif %}{{ t.slug|default:t.name }}</span>
+                {% endfor %}
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      {% endfor %}
+    </section>
+  {% empty %}
+    <p class="muted">No findings match the applied filters.</p>
+  {% endfor %}
+{% endblock %}
