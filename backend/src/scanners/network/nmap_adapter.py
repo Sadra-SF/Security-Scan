@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Optional
+
+import nmap
 
 from ..base import ScannerAdapter, ScanContext, FindingRecord, is_debug
 from ..constants import ScannerType, Severity
 from .. import registry
+
+logger = logging.getLogger(__name__)
 
 
 def _get_config_section(ctx: ScanContext) -> Dict[str, Any]:
@@ -45,14 +50,61 @@ class NetworkNmapAdapter(ScannerAdapter):
             remediation="Provide 'targets' as a list of IP/CIDR or ensure Asset has url_or_cidr for defaults.",
         )
 
+    def _parse_nmap_results(self, nm: nmap.PortScanner, target: str) -> List[FindingRecord]:
+        """Parse Nmap scan results into FindingRecord objects."""
+        findings = []
+
+        if target not in nm.all_hosts():
+            return findings
+
+        host = nm[target]
+
+        # Check for open ports
+        for proto in host.all_protocols():
+            ports = host[proto].keys()
+            for port in ports:
+                state = host[proto][port]['state']
+                service = host[proto][port]['name']
+                if state == 'open':
+                    severity = Severity.LOW
+                    if port in [21, 23, 25, 53, 80, 110, 143, 443, 993, 995]:
+                        severity = Severity.MEDIUM  # Common vulnerable services
+
+                    finding = FindingRecord(
+                        scanner_type=self.type,
+                        category="open_port",
+                        title=f"Open port {port}/{proto} ({service})",
+                        severity=severity,
+                        description=f"Port {port} is open on {target}, running {service}",
+                        location=f"{target}:{port}/{proto}",
+                        evidence_summary=f"Service: {service}, State: {state}",
+                        remediation="Review if this port/service should be exposed. Consider firewall rules."
+                    )
+                    findings.append(finding)
+
+        # Check for OS detection
+        if 'osmatch' in host and host['osmatch']:
+            os_match = host['osmatch'][0]
+            if os_match['accuracy'] > 80:
+                finding = FindingRecord(
+                    scanner_type=self.type,
+                    category="os_detection",
+                    title=f"OS Detected: {os_match['name']}",
+                    severity=Severity.INFO,
+                    description=f"Operating system detected: {os_match['name']} (accuracy: {os_match['accuracy']}%)",
+                    location=target,
+                    evidence_summary=f"OS: {os_match['name']}"
+                )
+                findings.append(finding)
+
+        return findings
+
     def run(self, ctx: ScanContext) -> List[FindingRecord]:
         cfg = _get_config_section(ctx) or {}
         targets = cfg.get("targets")
+        scan_args = cfg.get("scan_args", "-sV -O")  # Version detection and OS detection
+
         if not targets:
-            # Read from run context meta via ScanRun asset (not available here), rely on limits/config fallback:
-            # The orchestration passes only ctx; we cannot access Asset directly here.
-            # Spec: if no targets and asset is network type with url_or_cidr present, use that as default.
-            # We can't read asset here, so we depend on ctx.config.asset stashed by orchestrator later.
             asset_info = (ctx.config or {}).get("asset") or {}
             if asset_info.get("type") in {"host", "network", "cidr", "ip"} and asset_info.get("url_or_cidr"):
                 targets = [asset_info["url_or_cidr"]]
@@ -64,19 +116,28 @@ class NetworkNmapAdapter(ScannerAdapter):
         if not is_debug():
             return []
 
-        # Emit one synthetic open port finding for 443/tcp on first target
-        first = str(targets[0])
-        finding = FindingRecord(
-            scanner_type=self.type,
-            category="open_port",
-            title="[network.nmap] open port detected 443/tcp",
-            severity=Severity.LOW,
-            owasp_tag=None,
-            description=f"Simulated open port on {first} in DEBUG mode.",
-            remediation="Verify service exposure",
-            location=f"{first}:443/tcp",
-        )
-        return [finding]
+        findings: List[FindingRecord] = []
+
+        try:
+            nm = nmap.PortScanner()
+            for target in targets:
+                logger.info(f"Scanning {target} with args: {scan_args}")
+                nm.scan(hosts=target, arguments=scan_args)
+                target_findings = self._parse_nmap_results(nm, target)
+                findings.extend(target_findings)
+
+        except Exception as e:
+            logger.error(f"Nmap scan failed: {e}")
+            findings.append(FindingRecord(
+                scanner_type=self.type,
+                category="error",
+                title="Nmap scan error",
+                severity=Severity.MEDIUM,
+                description=f"Error during Nmap scan: {str(e)}",
+                remediation="Ensure nmap is installed and target is reachable."
+            ))
+
+        return findings
 
     def supports(self, asset: Dict[str, Any], profile: Dict[str, Any]) -> bool:
         enabled = (profile or {}).get("enabled_scanners", [])

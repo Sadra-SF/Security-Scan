@@ -21,6 +21,11 @@ class Schedule(models.Model):
     last_run_at = models.DateTimeField(null=True, blank=True)
     next_run_at = models.DateTimeField(null=True, blank=True, db_index=True)
 
+    # Maintenance window fields
+    timezone_name = models.CharField(max_length=64, default="UTC", help_text="IANA timezone name")
+    window_start = models.CharField(max_length=5, null=True, blank=True, help_text="HH:MM format")
+    window_end = models.CharField(max_length=5, null=True, blank=True, help_text="HH:MM format")
+
     created_at = models.DateTimeField(default=timezone.now, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 

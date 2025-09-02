@@ -9,6 +9,7 @@ class Report(models.Model):
         PDF = "pdf", "PDF"
         HTML = "html", "HTML"
         MD = "md", "Markdown"
+        CSV = "csv", "CSV"
 
     class Status(models.TextChoices):
         DRAFT = "draft", "Draft"

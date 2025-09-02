@@ -1,17 +1,22 @@
 import React from 'react';
+import { useForm } from 'react-hook-form';
 import { useCreateReport, useReports, downloadReport } from '@api/hooks/resources';
 
 export default function Reports() {
   const { data, isLoading, isError } = useReports({ page_size: 20 });
   const createReport = useCreateReport();
+  const { register, handleSubmit, formState: { errors } } = useForm<{ type: string }>({
+    defaultValues: { type: 'pdf' }
+  });
 
-  const onDownload = async (id: number) => {
+  const onDownload = async (id: number, type?: string) => {
     try {
       const blob = await downloadReport(id);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `report-${id}.pdf`;
+      const ext = type === 'html' ? 'html' : type === 'markdown' ? 'md' : 'pdf';
+      a.download = `report-${id}.${ext}`;
       a.click();
       URL.revokeObjectURL(url);
     } catch {
@@ -20,9 +25,9 @@ export default function Reports() {
     }
   };
 
-  const onCreate = async () => {
+  const onCreate = async (data: { type: string }) => {
     try {
-      await createReport.mutateAsync({ type: 'pdf' });
+      await createReport.mutateAsync(data);
       // eslint-disable-next-line no-alert
       alert('Report creation started.');
     } catch {
@@ -38,14 +43,23 @@ export default function Reports() {
     <div className="space-y-4">
       <header className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Reports</h1>
-        <button
-          type="button"
-          className="px-3 py-1 rounded border hover:bg-gray-50"
-          onClick={onCreate}
-          disabled={createReport.isPending}
-        >
-          {createReport.isPending ? 'Creating…' : 'Create Report'}
-        </button>
+        <form onSubmit={handleSubmit(onCreate)} className="flex items-center gap-2">
+          <select
+            {...register('type')}
+            className="border rounded px-3 py-1"
+          >
+            <option value="pdf">PDF</option>
+            <option value="html">HTML</option>
+            <option value="markdown">Markdown</option>
+          </select>
+          <button
+            type="submit"
+            className="px-3 py-1 rounded border hover:bg-gray-50 disabled:opacity-50"
+            disabled={createReport.isPending}
+          >
+            {createReport.isPending ? 'Creating…' : 'Create Report'}
+          </button>
+        </form>
       </header>
 
       <table className="w-full text-sm border">
@@ -67,7 +81,7 @@ export default function Reports() {
                 <button
                   type="button"
                   className="text-blue-600 hover:underline"
-                  onClick={() => onDownload(r.id)}
+                  onClick={() => onDownload(r.id, r.type || undefined)}
                 >
                   Download
                 </button>

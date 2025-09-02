@@ -3,6 +3,7 @@ from django.db import models
 from django.utils import timezone
 from targets.models import Target
 from scans.models import Scan
+from compliance.models import ComplianceControl
 
 
 class Finding(models.Model):
@@ -32,6 +33,7 @@ class Finding(models.Model):
     dedupe_hash = models.CharField(max_length=64, help_text="Deterministic hash for deduplication within a target")
     locations = models.JSONField(default=list, blank=True, help_text="List of affected locations/paths/URLs")
     evidence_refs = models.JSONField(default=list, blank=True, help_text="IDs/refs of linked evidence (populated later)")
+    compliance_controls = models.ManyToManyField(ComplianceControl, blank=True, related_name="findings", help_text="Compliance controls this finding violates")
     metadata = models.JSONField(default=dict, blank=True)
     first_seen_at = models.DateTimeField(default=timezone.now)
     last_seen_at = models.DateTimeField(default=timezone.now, db_index=True)

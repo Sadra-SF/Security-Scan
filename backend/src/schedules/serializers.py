@@ -42,6 +42,9 @@ class ScheduleSerializer(serializers.ModelSerializer):
             "enabled",
             "last_run_at",
             "next_run_at",
+            "timezone_name",
+            "window_start",
+            "window_end",
             "created_at",
             "updated_at",
         )
@@ -59,6 +62,29 @@ class ScheduleSerializer(serializers.ModelSerializer):
         cadence = (cfg.get("cadence") or cfg.get("schedule") or "").lower() if isinstance(cfg, dict) else ""
         if cadence and cadence not in ("hourly", "daily", "weekly"):
             raise serializers.ValidationError({"config": "Unsupported cadence. Use hourly/daily/weekly or omit."})
+
+        # Validate timezone_name if provided
+        if "timezone_name" in attrs and attrs.get("timezone_name"):
+            tz_name = attrs["timezone_name"]
+            try:
+                import pytz
+                pytz.timezone(tz_name)
+            except Exception:
+                raise serializers.ValidationError({"timezone_name": f"Invalid timezone: {tz_name}"})
+
+        # Validate window_start and window_end format if provided
+        for field in ("window_start", "window_end"):
+            if field in attrs and attrs.get(field):
+                value = attrs[field]
+                if not isinstance(value, str) or len(value) != 5 or value[2] != ":":
+                    raise serializers.ValidationError({field: "Must be in HH:MM format"})
+                try:
+                    hh, mm = value.split(":")
+                    hh, mm = int(hh), int(mm)
+                    if not (0 <= hh <= 23) or not (0 <= mm <= 59):
+                        raise serializers.ValidationError({field: "Invalid time values"})
+                except Exception:
+                    raise serializers.ValidationError({field: "Must be in HH:MM format"})
 
         # Ensure at least something schedules it: either cadence or cron fields
         if not cadence and not _has_any_cron_fields({**getattr(self.instance, "__dict__", {}), **attrs}):

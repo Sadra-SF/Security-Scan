@@ -62,8 +62,8 @@ class ReportCreateSerializer(serializers.ModelSerializer):
         if not fmt:
             fmt = "pdf"
         fmt = str(fmt).lower()
-        if fmt not in ("pdf", "csv"):
-            raise serializers.ValidationError({"format": "Invalid format. Must be one of: ['pdf','csv']"})
+        if fmt not in ("pdf", "html", "md", "csv"):
+            raise serializers.ValidationError({"format": "Invalid format. Must be one of: ['pdf','html','md','csv']"})
         attrs["format"] = fmt
         # Default title if missing
         if not attrs.get("title"):

@@ -91,8 +91,25 @@ def generate_report(report_id: str) -> None:
             temp_path, _count = write_findings_csv_to_temp(qs)
             final_name = f"{report.id}.csv"
             storage_abs_path = move_temp_to_reports_storage(temp_path, final_name)
+        elif fmt == "html":
+            # Generate HTML report
+            template_name = report.template or "reports/html/scan_report.html"
+            context = _build_context(report, qs)
+            html = render_report_html(template_name, context)
+            storage_abs_path = _write_html_fallback(html)
+        elif fmt == "md":
+            # Generate Markdown report
+            template_name = report.template or "reports/md/scan_report.md"
+            context = _build_context(report, qs)
+            md_content = render_report_html(template_name, context)  # Reuse HTML renderer for simplicity
+            ensure_reports_storage_dir()
+            name = f"{report.id}.md"
+            abs_path = os.path.join(settings.REPORTS_STORAGE_DIR, name)
+            with open(abs_path, "w", encoding="utf-8") as fh:
+                fh.write(md_content)
+            storage_abs_path = abs_path
         else:
-            # Default template
+            # Default to PDF
             template_name = report.template or "reports/pdf/scan_report.html"
             context = _build_context(report, qs)
             html = render_report_html(template_name, context)

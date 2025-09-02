@@ -2,15 +2,16 @@ import React from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import AppLayout from '@components/../layout/AppLayout';
 import Login from '@pages/Auth/Login';
+import Dashboard from '@pages/Dashboard';
+import TargetsList from '@pages/Targets/List';
+import TargetDetail from '@pages/Targets/Detail';
+import NewScan from '@pages/Scans/NewScan';
+import ScansList from '@pages/Scans/List';
+import ScanDetail from '@pages/Scans/Detail';
+import FindingsList from '@pages/Findings/List';
+import Reports from '@pages/Reports';
 import { RequireAuth } from './requireAuth';
 import {
-  Dashboard,
-  TargetsList,
-  TargetDetail,
-  NewScan,
-  ScanDetail,
-  Findings,
-  Reports,
   SettingsIntegrations
 } from './_tempPlaceholders';
 
@@ -34,9 +35,10 @@ export default function AppRouter() {
         <Route path="dashboard" element={<Dashboard />} />
         <Route path="targets" element={<TargetsList />} />
         <Route path="targets/:id" element={<TargetDetail />} />
+        <Route path="scans" element={<ScansList />} />
         <Route path="scans/new" element={<NewScan />} />
         <Route path="scans/:id" element={<ScanDetail />} />
-        <Route path="findings" element={<Findings />} />
+        <Route path="findings" element={<FindingsList />} />
         <Route path="reports" element={<Reports />} />
         <Route path="settings/integrations" element={<SettingsIntegrations />} />
       </Route>

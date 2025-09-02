@@ -33,6 +33,7 @@ const Finding = z.object({
   id: z.number(),
   severity: z.string(),
   title: z.string(),
+  status: z.string().optional(),
   target: z.number().optional().nullable(),
   last_seen: z.string().optional().nullable()
 });
@@ -112,6 +113,44 @@ export function useTestConnection() {
     }
   });
 }
+export function useCreateTarget() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationKey: ['targets', 'create'],
+    mutationFn: async (payload: { name: string; address: string; type?: string }) => {
+      const { data } = await api.post('/api/v1/targets/', payload);
+      return Target.parse(data);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['targets'] });
+    }
+  });
+}
+export function useUpdateTarget() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationKey: ['targets', 'update'],
+    mutationFn: async ({ id, payload }: { id: number; payload: { name?: string; address?: string; type?: string } }) => {
+      const { data } = await api.patch(`/api/v1/targets/${id}/`, payload);
+      return Target.parse(data);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['targets'] });
+    }
+  });
+}
+export function useDeleteTarget() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationKey: ['targets', 'delete'],
+    mutationFn: async (id: number) => {
+      await api.delete(`/api/v1/targets/${id}/`);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['targets'] });
+    }
+  });
+}
 
 /**
  * Scans
@@ -158,6 +197,19 @@ export function useFindings(params?: PageParams & { severity?: string; status?: 
     queryFn: async () => {
       const { data } = await api.get(`/api/v1/findings/${toQS(params)}`);
       return FindingsPage.parse(data);
+    }
+  });
+}
+export function useBulkUpdateFindings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationKey: ['findings', 'bulk-update'],
+    mutationFn: async (payload: { ids: number[]; status: string }) => {
+      const { data } = await api.patch('/api/v1/findings/bulk-update/', payload);
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['findings'] });
     }
   });
 }

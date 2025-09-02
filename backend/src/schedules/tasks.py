@@ -33,7 +33,7 @@ def _in_maintenance_window(schedule: Schedule, dt) -> bool:
         # attempt model-level attributes
         window_start = getattr(schedule, "window_start", None)
         window_end = getattr(schedule, "window_end", None)
-        tz_name = getattr(schedule, "timezone", None)
+        tz_name = getattr(schedule, "timezone_name", None)
     except Exception:
         window_start = window_end = tz_name = None
 

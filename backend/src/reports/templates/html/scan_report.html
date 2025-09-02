@@ -1,28 +1,26 @@
-{% extends "reports/pdf/base.html" %}
+{% extends "reports/html/base.html" %}
 {% block title %}{{ report.title|default:"Security Scanner Report" }}{% endblock %}
 {% block content %}
   <!-- Executive Summary -->
-  <section class="section">
+  <section class="summary">
     <h2>Executive Summary</h2>
     <p>This security assessment report provides an overview of vulnerabilities and security findings discovered during the scanning process for project <strong>{{ project.name }}</strong>.</p>
-    <div style="display: table; width: 100%; margin: 16px 0;">
-      <div style="display: table-row;">
-        <div style="display: table-cell; padding: 8px; text-align: center; border: 1px solid #ccc;">
-          <div style="font-size: 24px; font-weight: bold; color: #007bff;">{{ findings|length }}</div>
-          <div style="font-size: 10px; color: #666; text-transform: uppercase;">Total Findings</div>
-        </div>
-        <div style="display: table-cell; padding: 8px; text-align: center; border: 1px solid #ccc;">
-          <div style="font-size: 24px; font-weight: bold; color: #dc3545;">{{ grouped.critical|default([])|length }}</div>
-          <div style="font-size: 10px; color: #666; text-transform: uppercase;">Critical Issues</div>
-        </div>
-        <div style="display: table-cell; padding: 8px; text-align: center; border: 1px solid #ccc;">
-          <div style="font-size: 24px; font-weight: bold; color: #fd7e14;">{{ grouped.high|default([])|length }}</div>
-          <div style="font-size: 10px; color: #666; text-transform: uppercase;">High Severity</div>
-        </div>
-        <div style="display: table-cell; padding: 8px; text-align: center; border: 1px solid #ccc;">
-          <div style="font-size: 24px; font-weight: bold; color: #28a745;">{{ grouped.medium|default([])|length + grouped.low|default([])|length + grouped.info|default([])|length }}</div>
-          <div style="font-size: 10px; color: #666; text-transform: uppercase;">Other Issues</div>
-        </div>
+    <div class="stats">
+      <div class="stat">
+        <div class="stat-number">{{ findings|length }}</div>
+        <div class="stat-label">Total Findings</div>
+      </div>
+      <div class="stat">
+        <div class="stat-number">{{ grouped.critical|default([])|length }}</div>
+        <div class="stat-label">Critical Issues</div>
+      </div>
+      <div class="stat">
+        <div class="stat-number">{{ grouped.high|default([])|length }}</div>
+        <div class="stat-label">High Severity</div>
+      </div>
+      <div class="stat">
+        <div class="stat-number">{{ grouped.medium|default([])|length + grouped.low|default([])|length + grouped.info|default([])|length }}</div>
+        <div class="stat-label">Other Issues</div>
       </div>
     </div>
   </section>
@@ -30,39 +28,39 @@
   <!-- Vulnerability Breakdown -->
   <section class="section">
     <h2>Vulnerability Breakdown</h2>
-    <table style="width: 100%; border-collapse: collapse;">
+    <table>
       <thead>
         <tr>
-          <th style="border: 1px solid #ccc; padding: 8px; background: #f0f0f0;">Severity</th>
-          <th style="border: 1px solid #ccc; padding: 8px; background: #f0f0f0;">Count</th>
-          <th style="border: 1px solid #ccc; padding: 8px; background: #f0f0f0;">Description</th>
+          <th>Severity</th>
+          <th>Count</th>
+          <th>Description</th>
         </tr>
       </thead>
       <tbody>
         <tr>
-          <td style="border: 1px solid #ccc; padding: 8px;"><span class="severity-badge sev-critical">Critical</span></td>
-          <td style="border: 1px solid #ccc; padding: 8px;">{{ grouped.critical|default([])|length }}</td>
-          <td style="border: 1px solid #ccc; padding: 8px;">Immediate security risks requiring urgent attention</td>
+          <td><span class="severity-badge sev-critical">Critical</span></td>
+          <td>{{ grouped.critical|default([])|length }}</td>
+          <td>Immediate security risks requiring urgent attention</td>
         </tr>
         <tr>
-          <td style="border: 1px solid #ccc; padding: 8px;"><span class="severity-badge sev-high">High</span></td>
-          <td style="border: 1px solid #ccc; padding: 8px;">{{ grouped.high|default([])|length }}</td>
-          <td style="border: 1px solid #ccc; padding: 8px;">Significant security vulnerabilities</td>
+          <td><span class="severity-badge sev-high">High</span></td>
+          <td>{{ grouped.high|default([])|length }}</td>
+          <td>Significant security vulnerabilities</td>
         </tr>
         <tr>
-          <td style="border: 1px solid #ccc; padding: 8px;"><span class="severity-badge sev-medium">Medium</span></td>
-          <td style="border: 1px solid #ccc; padding: 8px;">{{ grouped.medium|default([])|length }}</td>
-          <td style="border: 1px solid #ccc; padding: 8px;">Moderate security concerns</td>
+          <td><span class="severity-badge sev-medium">Medium</span></td>
+          <td>{{ grouped.medium|default([])|length }}</td>
+          <td>Moderate security concerns</td>
         </tr>
         <tr>
-          <td style="border: 1px solid #ccc; padding: 8px;"><span class="severity-badge sev-low">Low</span></td>
-          <td style="border: 1px solid #ccc; padding: 8px;">{{ grouped.low|default([])|length }}</td>
-          <td style="border: 1px solid #ccc; padding: 8px;">Minor security issues</td>
+          <td><span class="severity-badge sev-low">Low</span></td>
+          <td>{{ grouped.low|default([])|length }}</td>
+          <td>Minor security issues</td>
         </tr>
         <tr>
-          <td style="border: 1px solid #ccc; padding: 8px;"><span class="severity-badge sev-info">Info</span></td>
-          <td style="border: 1px solid #ccc; padding: 8px;">{{ grouped.info|default([])|length }}</td>
-          <td style="border: 1px solid #ccc; padding: 8px;">Informational findings</td>
+          <td><span class="severity-badge sev-info">Info</span></td>
+          <td>{{ grouped.info|default([])|length }}</td>
+          <td>Informational findings</td>
         </tr>
       </tbody>
     </table>
@@ -83,8 +81,8 @@
             <div class="kv"><strong>Status:</strong> {{ f.status }}</div>
             <div class="kv"><strong>Target:</strong> {{ f.target.name }}</div>
             {% if f.scan_id %}<div class="kv"><strong>Scan:</strong> {{ f.scan_id }}</div>{% endif %}
-            <div class="kv"><strong>First seen:</strong> {{ f.first_seen_at }}</div>
-            <div class="kv"><strong>Last seen:</strong> {{ f.last_seen_at }}</div>
+            <div class="kv"><strong>First seen:</strong> {{ f.first_seen_at|date:"M j, Y g:i A" }}</div>
+            <div class="kv"><strong>Last seen:</strong> {{ f.last_seen_at|date:"M j, Y g:i A" }}</div>
             {% if f.metadata.category %}<div class="kv"><strong>Category:</strong> {{ f.metadata.category }}</div>{% endif %}
             {% if f.locations and f.locations.0 %}
               {% with loc=f.locations.0 %}
@@ -120,7 +118,7 @@
   <!-- Remediation Recommendations -->
   <section class="section">
     <h2>Remediation Recommendations</h2>
-    <div style="background: #d4edda; border: 1px solid #c3e6cb; padding: 12px; border-radius: 4px; margin: 12px 0;">
+    <div class="remediation">
       <h3>Priority Actions</h3>
       <ul>
         <li><strong>Critical Issues:</strong> Address all critical severity findings immediately as they pose the highest security risk.</li>
@@ -135,7 +133,7 @@
   <!-- Compliance Mapping -->
   <section class="section">
     <h2>Compliance Mapping</h2>
-    <div style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 12px; border-radius: 4px; margin: 12px 0;">
+    <div class="compliance">
       <p>This report includes compliance mappings for the following frameworks:</p>
       <ul>
         <li><strong>OWASP Top 10:</strong> Web application security standards</li>
