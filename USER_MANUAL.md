@@ -46,7 +46,7 @@ The Security Scanner is a comprehensive web application security testing platfor
 
 1. **Clone the repository**:
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/Sadra-SF/Security-Scan
    cd security-scanner
    ```
 
