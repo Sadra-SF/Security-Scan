@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@api/hooks/auth';
 
 export default function Login() {
@@ -55,9 +55,19 @@ export default function Login() {
         >
           {login.isPending ? 'Signing in…' : 'Sign in'}
         </button>
-        <p className="text-xs text-gray-500 mt-3">
-          Endpoint: /api/auth/jwt/create (configurable in backend).
-        </p>
+        <div className="text-center mt-4 space-y-2">
+          <p className="text-sm text-gray-600">
+            Don't have an account?{' '}
+            <Link to="/register" className="text-blue-600 hover:underline">
+              Sign up
+            </Link>
+          </p>
+          <p className="text-sm text-gray-600">
+            <Link to="/password-reset" className="text-blue-600 hover:underline">
+              Forgot your password?
+            </Link>
+          </p>
+        </div>
       </form>
     </div>
   );

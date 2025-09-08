@@ -14,6 +14,9 @@ from . import registry  # noqa: F401
 # Static
 from .static import deps_adapter as _deps_adapter  # noqa: F401
 from .static import config_adapter as _config_adapter  # noqa: F401
+from .static import sqli_analyzer as _sqli_analyzer  # noqa: F401
+from .static import xss_analyzer as _xss_analyzer  # noqa: F401
+from .static import csrf_analyzer as _csrf_analyzer  # noqa: F401
 # Dynamic
 from .dynamic import zap_adapter as _zap_adapter  # noqa: F401
 # New dynamic crawler-based plugins

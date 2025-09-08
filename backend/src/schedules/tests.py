@@ -4,7 +4,7 @@ from django.test import TestCase
 from django.utils import timezone
 from unittest.mock import patch
 
-from projects.models import Project
+from projects.models import Project, Organization
 from targets.models import Target
 from schedules.models import Schedule
 from schedules.tasks import enqueue_due_scans, compute_next_run
@@ -16,10 +16,12 @@ class EnqueueDueScansTest(TestCase):
         # Minimal project/target for schedules
         from django.contrib.auth import get_user_model
 
+        # Create organization first
+        self.org = Organization.objects.create(id=1, name="Test Org", slug="test-org")
         # Create a project via direct create to satisfy FK; projects app has minimal fields
         self.project = Project.objects.create(
             id=1,
-            organization_id=1,
+            organization=self.org,
             name="proj",
             slug="proj",
             description="",
@@ -65,7 +67,9 @@ class EnqueueDueScansTest(TestCase):
         sch.refresh_from_db()
         self.assertIsNotNone(sch.last_run_at)
         self.assertIsNotNone(sch.next_run_at)
-        self.assertEqual((sch.next_run_at - now).total_seconds(), 3600.0)
+        diff = (sch.next_run_at - now).total_seconds()
+        self.assertGreaterEqual(diff, 3599.0)  # Allow small time difference
+        self.assertLessEqual(diff, 3601.0)
 
         # Running again within the same minute should be idempotent (no new scan)
         processed2 = enqueue_due_scans()

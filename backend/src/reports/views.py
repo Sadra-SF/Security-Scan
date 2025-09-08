@@ -8,7 +8,7 @@ from rest_framework.response import Response
 
 from .models import Report
 from .serializers import ReportSerializer, ReportCreateSerializer
-from .tasks import generate_report
+from .tasks import generate_report, generate_report_sync
 
 
 class ReportViewSet(viewsets.ModelViewSet):
@@ -38,8 +38,20 @@ class ReportViewSet(viewsets.ModelViewSet):
             status=Report.Status.GENERATING,  # queueing immediately
             filters=serializer.validated_data.get("filters") or {},
         )
-        # Enqueue celery task
-        generate_report.delay(str(report.id))
+        # Try async enqueue, fallback to sync if Celery fails
+        try:
+            generate_report.delay(str(report.id))
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Async report generation failed for report {report.id}, falling back to synchronous: {e}")
+            try:
+                generate_report_sync(str(report.id))
+            except Exception as sync_e:
+                logger.error(f"Synchronous report generation also failed for report {report.id}: {sync_e}")
+                # Update status to failed
+                report.status = Report.Status.FAILED
+                report.save(update_fields=["status", "updated_at"])
 
         out = ReportSerializer(report)
         headers = {"Location": self.request.build_absolute_uri(f"/api/v1/reports/{report.id}/")}

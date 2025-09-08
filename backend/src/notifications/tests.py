@@ -19,7 +19,7 @@ class NotificationsDispatchTests(TestCase):
     def setUp(self) -> None:
         self.org = Organization.objects.create(name="Acme", slug="acme")
         self.project = Project.objects.create(organization=self.org, name="App", slug="app")
-        self.target = Target.objects.create(project=self.project, name="app.local", kind="web", url="http://app.local")
+        self.target = Target.objects.create(project=self.project, name="app.local", type="web", address="http://app.local")
         self.scan = Scan.objects.create(target=self.target, scanner="unit", status=Scan.Status.COMPLETED)
         # minimal stats to drive threshold
         self.scan.stats = {"total": 3, "by_severity": {"low": 1, "high": 2}, "by_category": {}}

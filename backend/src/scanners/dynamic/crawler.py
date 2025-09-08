@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
 import logging
 import re
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from html.parser import HTMLParser
-from typing import Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
 from urllib.parse import urljoin, urlparse, urlunparse, parse_qsl
 
 import requests
@@ -14,7 +16,7 @@ from django.conf import settings
 logger = logging.getLogger(__name__)
 
 
-def _get_defaults() -> Dict[str, any]:
+def _get_defaults() -> Dict[str, Any]:
     d = getattr(settings, "SCANNER_DEFAULTS", {}) or {}
     return {
         "http_timeout_seconds": int(d.get("HTTP_TIMEOUT_SECS", 5)),
@@ -96,6 +98,7 @@ class PageResult:
     body_excerpt: Optional[str] = None
     error: Optional[str] = None
     method: str = "GET"
+    http_evidence: Optional[Any] = None  # EvidenceItem for HTTP details
 
 
 class TokenBucket:
@@ -168,6 +171,7 @@ class Crawler:
         allow_redirects: bool = True,
         max_redirects: int = 2,
         verify: bool = True,
+        capture_http_details: bool = False,
     ) -> PageResult:
         result = PageResult(url=_normalize_url(url), method=method.upper())
         # Rate limit
@@ -179,11 +183,24 @@ class Crawler:
         h = {"User-Agent": self.user_agent}
         if headers:
             h.update(headers)
+        # Initialize HTTP logger if detailed capture is requested
+        http_logger = None
+        if capture_http_details:
+            try:
+                from evidence.http_logger import HTTPLogger
+                http_logger = HTTPLogger(self.session)
+            except ImportError:
+                logger.warning("HTTP logging not available, falling back to basic capture")
+
         try:
             while True:
                 start = time.monotonic()
+                start_datetime = datetime.now(timezone.utc)
+
                 resp = self.session.request(method.upper(), current_url, params=params, data=data, headers=h, timeout=t, allow_redirects=False, verify=verify)
                 elapsed_ms = int((time.monotonic() - start) * 1000)
+                end_datetime = datetime.now(timezone.utc)
+
                 status = resp.status_code
                 hdrs = {k.lower(): v for k, v in (resp.headers or {}).items()}
                 body_excerpt = ""
@@ -192,6 +209,7 @@ class Crawler:
                         body_excerpt = (resp.text or "")[:500]
                     except Exception:
                         body_excerpt = ""
+
                 result = PageResult(
                     url=_normalize_url(current_url),
                     status=status,
@@ -200,6 +218,36 @@ class Crawler:
                     body_excerpt=body_excerpt,
                     method=method.upper(),
                 )
+
+                # Store HTTP details if logger is available
+                if http_logger:
+                    try:
+                        # Convert data to appropriate format for logging
+                        request_body = None
+                        if data:
+                            if isinstance(data, dict):
+                                request_body = json.dumps(data)
+                            else:
+                                request_body = data
+
+                        http_evidence = http_logger.log_request_response(
+                            method=method.upper(),
+                            url=current_url,
+                            request_headers=h,
+                            request_body=request_body,
+                            response=resp,
+                            start_time=start_datetime,
+                            end_time=end_datetime,
+                            metadata={
+                                "redirect_count": 2 - redirects_left,
+                                "is_redirect": status in (301, 302, 303, 307, 308)
+                            }
+                        )
+                        # Store evidence in result for later use
+                        result.http_evidence = http_evidence
+                    except Exception as e:
+                        logger.warning(f"Failed to log HTTP details: {e}")
+
                 # Handle up to 2 redirects manually to keep control
                 if status in (301, 302, 303, 307, 308) and redirects_left > 0:
                     location = hdrs.get("location") or hdrs.get("content-location")
@@ -236,7 +284,7 @@ class Crawler:
             logger.debug("extract_links failed base=%s err=%s", base_url, e)
         return links
 
-    def crawl(self, start_url: str, max_pages: Optional[int] = None, target_settings: Optional[Dict[str, any]] = None) -> Iterable[PageResult]:
+    def crawl(self, start_url: str, max_pages: Optional[int] = None, target_settings: Optional[Dict[str, Any]] = None) -> Iterable[PageResult]:
         defaults = _get_defaults()
         limit = int(max_pages or defaults["dynamic_max_pages"])
         start_url = _normalize_url(start_url)

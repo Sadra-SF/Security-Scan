@@ -95,7 +95,7 @@
               {% endwith %}
             {% endif %}
             <div class="kv"><strong>Description:</strong> {{ f.description|default:"-" }}</div>
-            <div class="kv"><strong>Plugin:</strong> {{ f.metadata.plugin_key|default:f.metadata.plugin|default:"-" }}</div>
+            <div class="kv"><strong>Plugin:</strong> {% firstof f.metadata.plugin_key f.metadata.plugin "-" %}</div>
 
             <div class="tags">
               {% comment %}Compliance tags: support either f.compliance_tags or reverse set{% endcomment %}

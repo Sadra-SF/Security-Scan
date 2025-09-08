@@ -48,7 +48,7 @@ def _store_file_content(evidence: Evidence, content: bytes, filename: str) -> No
 def record_evidence(finding: Finding, evidence_item: EvidenceItem) -> Evidence:
     """
     Persist an Evidence row for a finding from a lightweight EvidenceItem.
-    Handles file storage, inline content, and external URLs.
+    Handles file storage, inline content, external URLs, and screenshot capture.
     """
     try:
         storage_url = evidence_item.storage_url or ""
@@ -57,6 +57,29 @@ def record_evidence(finding: Finding, evidence_item: EvidenceItem) -> Evidence:
         # Handle different evidence types
         file_content = None
         filename = None
+
+        # Special handling for screenshot evidence
+        if evidence_item.kind == "screenshot" and meta.get("capture_url"):
+            # Capture screenshot using Selenium
+            try:
+                from .screenshot import capture_screenshot_evidence
+                screenshot_evidence = capture_screenshot_evidence(
+                    finding=finding,
+                    url=meta["capture_url"],
+                    browser=meta.get("browser", "chrome"),
+                    headless=meta.get("headless", True),
+                    wait_time=meta.get("wait_time", 5),
+                    full_page=meta.get("full_page", False),
+                    element_selector=meta.get("element_selector"),
+                    title=meta.get("title"),
+                    metadata={k: v for k, v in meta.items() if k not in ["capture_url", "browser", "headless", "wait_time", "full_page", "element_selector"]}
+                )
+                logger.info("Captured screenshot evidence %s for finding %s", screenshot_evidence.id, finding.id)
+                return screenshot_evidence
+            except Exception as e:
+                logger.error("Screenshot capture failed: %s", e)
+                # Fall back to creating evidence without screenshot
+                meta["screenshot_error"] = str(e)
 
         if evidence_item.inline and not storage_url:
             # Store inline content as a file
@@ -102,6 +125,19 @@ def record_evidence(finding: Finding, evidence_item: EvidenceItem) -> Evidence:
         refs.append(str(ev.id))
         finding.evidence_refs = refs
         finding.save(update_fields=["evidence_refs", "updated_at"])
+
+        # Enrich evidence with additional metadata
+        try:
+            from .enrichment import EvidenceEnricher
+            context = {
+                'finding': finding,
+                'evidence_type': evidence_item.kind,
+            }
+            EvidenceEnricher.enrich_evidence(ev, context)
+        except ImportError:
+            logger.debug("Evidence enrichment not available")
+        except Exception as e:
+            logger.warning(f"Evidence enrichment failed: {e}")
 
         logger.info("Recorded evidence %s for finding %s", ev.id, finding.id)
         return ev
@@ -175,6 +211,20 @@ def record_evidence_from_content(finding: Finding, content: Union[str, bytes],
             refs.append(str(ev.id))
             finding.evidence_refs = refs
             finding.save(update_fields=["evidence_refs", "updated_at"])
+
+            # Enrich evidence with additional metadata
+            try:
+                from .enrichment import EvidenceEnricher
+                context = {
+                    'finding': finding,
+                    'evidence_type': kind,
+                    'content_type': content_type,
+                }
+                EvidenceEnricher.enrich_evidence(ev, context)
+            except ImportError:
+                logger.debug("Evidence enrichment not available")
+            except Exception as e:
+                logger.warning(f"Evidence enrichment failed: {e}")
 
             return ev
 

@@ -49,19 +49,19 @@ def findings_queryset_with_compliance(filters: dict) -> QuerySet:
         "scan",
     ).all()
 
-    # Compliance tags relationship may live on another app (compliance)
-    # If M2M exists (through related_name 'compliance_tags'), prefetch; otherwise ignore gracefully.
+    # Compliance controls relationship
     try:
-        from compliance.models import ComplianceTag  # type: ignore
-
-        qs = qs.prefetch_related(Prefetch("compliancetag_set", queryset=ComplianceTag.objects.all()))
+        from compliance.models import ComplianceControl  # type: ignore
+        qs = qs.prefetch_related(
+            Prefetch("compliance_controls", queryset=ComplianceControl.objects.select_related("framework"))
+        )
     except Exception:
-        # Try generic m2m name 'compliance_tags'
-        try:
-            qs = qs.prefetch_related("compliance_tags")
-        except Exception:
-            # No compliance tagging present; proceed without prefetch.
-            pass
+        # No compliance controls present; proceed without prefetch.
+        pass
+
+    # Legacy compliance tags relationship may live on another app (compliance)
+    # Finding model doesn't have compliance_tags relationship, so skip prefetch.
+    pass
 
     project_id = filters.get("project_id")
     target_id = filters.get("target_id")
@@ -126,7 +126,15 @@ def finding_to_csv_row(f) -> List[str]:
     if isinstance(f.metadata, dict):
         category = f.metadata.get("category") or ""
 
-    # Compliance tags, try multiple attribute names
+    # Compliance controls
+    compliance_controls: List[str] = []
+    if hasattr(f, "compliance_controls"):
+        try:
+            compliance_controls = [f"{c.framework.name}:{c.control_id}" for c in f.compliance_controls.all()]
+        except Exception:
+            pass
+
+    # Legacy compliance tags, try multiple attribute names
     tags: List[str] = []
     # Try 'compliance_tags' m2m
     if hasattr(f, "compliance_tags"):
@@ -141,7 +149,7 @@ def finding_to_csv_row(f) -> List[str]:
         except Exception:
             pass
 
-    compliance_joined = ",".join(sorted(set(tags)))
+    compliance_joined = ",".join(sorted(set(compliance_controls + tags)))
 
     # Plugin key if present in metadata
     plugin_key = ""

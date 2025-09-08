@@ -59,6 +59,8 @@ def _build_context(scan: Scan, target: Target) -> ScanContext:
     # stash sandbox profile in context.config-like area via metadata if present
     try:
         # ScanContext in scanners.types has no generic config; attach attribute dynamically
+        setattr(ctx, "config", scan.config or {})
+        setattr(ctx, "asset_id", str(target.id))
         setattr(ctx, "sandbox_profile", sandbox_profile)
     except Exception:
         pass
@@ -80,13 +82,30 @@ def start_scan(self, scan_id: str) -> Dict[str, Any]:
 
     logger.info("start_scan scan_id=%s static=%s dynamic=%s", scan_id, static_keys, dynamic_keys)
 
-    # Kick off static plugins
-    for key in static_keys:
-        run_static_scan.apply_async(args=[scan_id, key], queue="scans.static")
+    # For testing without Redis: run plugins synchronously
+    try:
+        # Try async first (if Redis available)
+        for key in static_keys:
+            run_static_scan.apply_async(args=[scan_id, key], queue="scans.static")
+        for key in dynamic_keys:
+            run_dynamic_scan.apply_async(args=[scan_id, key, None], queue="scans.dynamic")
+        logger.info("Successfully enqueued plugin tasks asynchronously")
+    except Exception as e:
+        logger.warning("Async enqueue failed, running synchronously: %s", e)
+        # Fallback to synchronous execution
+        for key in static_keys:
+            try:
+                run_static_scan(scan_id, key)
+                logger.info("Completed static scan for plugin %s", key)
+            except Exception as plugin_e:
+                logger.error("Failed static scan for plugin %s: %s", key, plugin_e)
 
-    # Kick off dynamic plugins
-    for key in dynamic_keys:
-        run_dynamic_scan.apply_async(args=[scan_id, key, None], queue="scans.dynamic")
+        for key in dynamic_keys:
+            try:
+                run_dynamic_scan(scan_id, key, None)
+                logger.info("Completed dynamic scan for plugin %s", key)
+            except Exception as plugin_e:
+                logger.error("Failed dynamic scan for plugin %s: %s", key, plugin_e)
 
     # Aggregation is manual for now; callers can enqueue aggregate_results later
     return {"static": static_keys, "dynamic": dynamic_keys}
@@ -198,7 +217,7 @@ def aggregate_results(self, scan_id: str) -> Dict[str, Any]:
     scan.finished_at = timezone.now()
     scan.save(update_fields=["stats", "status", "finished_at", "updated_at"])
 
-    # Enqueue notifications
+    # Enqueue notifications with synchronous fallback
     try:
         from notifications.tasks import dispatch_event  # local import to avoid circulars
         # Determine completion or failure
@@ -217,6 +236,27 @@ def aggregate_results(self, scan_id: str) -> Dict[str, Any]:
         if has_threshold:
             dispatch_event.apply_async(args=["severity.threshold", str(scan.id)], queue="notifications.send")
     except Exception as e:
-        logger.warning("aggregate_results notification enqueue failed scan_id=%s err=%s", scan_id, e)
+        logger.warning("aggregate_results async notification enqueue failed scan_id=%s err=%s, trying synchronous fallback", scan_id, e)
+        # Synchronous fallback
+        try:
+            from notifications.tasks import dispatch_event_sync  # Import synchronous version
+            evt = "scan.failed" if scan.status == Scan.Status.FAILED else "scan.completed"
+            dispatch_event_sync(evt, str(scan.id))
+
+            # Threshold event fallback
+            defaults = getattr(settings, "NOTIFICATIONS_DEFAULTS", {}) or {}
+            threshold = str(defaults.get("threshold_severity", "high")).lower()
+            order = ["info", "low", "medium", "high", "critical"]
+            try:
+                idx = order.index(threshold)
+            except ValueError:
+                idx = order.index("high")
+            has_threshold = any((by_severity.get(s, 0) or 0) > 0 for s in order[idx:])
+            if has_threshold:
+                dispatch_event_sync("severity.threshold", str(scan.id))
+
+            logger.info("aggregate_results synchronous notification fallback succeeded scan_id=%s", scan_id)
+        except Exception as sync_e:
+            logger.error("aggregate_results synchronous notification fallback also failed scan_id=%s err=%s", scan_id, sync_e)
 
     return scan.stats

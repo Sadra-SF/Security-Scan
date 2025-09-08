@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional
 from urllib.parse import urlparse, parse_qsl
@@ -83,6 +84,27 @@ def test_xss_reflection(page: Page, token: str) -> List[FindingRecord]:
     findings: List[FindingRecord] = []
     body = page.body_excerpt or ""
     if token and token in body:
+        import json
+        evidence_items = [_evidence_from_page(page, {"probe": json.dumps({"token": token})})]
+
+        # Add screenshot evidence for visual confirmation
+        try:
+            from evidence.utils import create_screenshot_evidence
+            screenshot_evidence = create_screenshot_evidence(
+                url=page.url,
+                title=f"XSS Reflection - {page.url}",
+                wait_time=3,
+                metadata={
+                    "vulnerability_type": "xss_reflection",
+                    "token": token,
+                    "detection_method": "body_reflection"
+                }
+            )
+            evidence_items.append(screenshot_evidence)
+        except ImportError:
+            # Screenshot functionality not available, continue without it
+            pass
+
         findings.append(
             FindingRecord(
                 plugin_key="dynamic.crawler.xss",
@@ -93,7 +115,7 @@ def test_xss_reflection(page: Page, token: str) -> List[FindingRecord]:
                 location=page.url,
                 metadata={"token": token},
                 compliance_tags=["A03:2021-Injection/XSS"],
-                evidence=[_evidence_from_page(page, {"probe": {"token": token}})],
+                evidence=evidence_items,
             )
         )
     return findings
@@ -127,7 +149,7 @@ def test_sqli_echo(page: Page, baseline_len: int) -> List[FindingRecord]:
                         location=page.url,
                         metadata={"baseline_len": baseline_len, "observed_len": body_len},
                         compliance_tags=["A03:2021-Injection"],
-                        evidence=[_evidence_from_page(page, {"probe": {"baseline_len": baseline_len, "observed_len": body_len}})],
+                        evidence=[_evidence_from_page(page, {"probe": json.dumps({"baseline_len": baseline_len, "observed_len": body_len})})],
                     )
                 )
     except Exception:

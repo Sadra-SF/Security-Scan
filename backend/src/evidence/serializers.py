@@ -4,6 +4,8 @@ from .models import Evidence
 
 class EvidenceSerializer(serializers.ModelSerializer):
     file_url = serializers.SerializerMethodField()
+    correlated_evidence_count = serializers.SerializerMethodField()
+    evidence_chain_length = serializers.SerializerMethodField()
 
     class Meta:
         model = Evidence
@@ -20,13 +22,25 @@ class EvidenceSerializer(serializers.ModelSerializer):
             "request_id",
             "response_id",
             "metadata",
+            "correlation_id",
+            "correlation_type",
+            "parent_evidence",
+            "tags",
+            "correlated_evidence_count",
+            "evidence_chain_length",
             "created_at",
             "updated_at",
         )
-        read_only_fields = ("file_url", "size", "sha256")
+        read_only_fields = ("file_url", "size", "sha256", "correlated_evidence_count", "evidence_chain_length")
 
     def get_file_url(self, obj):
         return obj.file_url
+
+    def get_correlated_evidence_count(self, obj):
+        return obj.correlated_evidence.count()
+
+    def get_evidence_chain_length(self, obj):
+        return len(obj.evidence_chain)
 
 
 class EvidenceUploadSerializer(serializers.Serializer):

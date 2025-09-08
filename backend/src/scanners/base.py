@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import os
 import uuid
+import logging
 from dataclasses import dataclass, asdict, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 from abc import ABC, abstractmethod
 
 from .constants import ScannerType, Severity
+from .types import FindingRecord as BaseFindingRecord
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -26,24 +30,8 @@ class ScanContext:
         return d
 
 
-@dataclass(slots=True)
-class FindingRecord:
-    """Normalized finding representation across scanners."""
-    scanner_type: str
-    category: str
-    title: str
-    severity: str = Severity.INFO
-    cvss: Optional[float] = None
-    owasp_tag: Optional[str] = None
-    gdpr_tag: Optional[str] = None
-    description: Optional[str] = None
-    location: Optional[str] = None
-    evidence_summary: Optional[str] = None
-    remediation: Optional[str] = None
-    dedup_hash: Optional[str] = None
-
-    def to_primitive(self) -> Dict[str, Any]:
-        return asdict(self)
+# Use FindingRecord from types module
+FindingRecord = BaseFindingRecord
 
 
 class ScannerAdapter(ABC):
@@ -71,6 +59,52 @@ class ScannerAdapter(ABC):
         """Execute the scan synchronously and return findings."""
         raise NotImplementedError
 
+    def _create_error_finding(self, error: Exception, location: str = "", category: str = "error") -> FindingRecord:
+        """Helper method to create error findings with proper evidence."""
+        from .types import EvidenceItem
+        evidence = EvidenceItem(
+            kind="scan_error",
+            inline=f"Scan error: {str(error)}",
+            content_type="text/plain",
+            metadata={
+                "error_type": type(error).__name__,
+                "error_message": str(error),
+                "location": location
+            }
+        )
+        return FindingRecord(
+            plugin_key=getattr(self, "key", "unknown"),
+            category=category,
+            title="Scanner execution error",
+            severity="medium",
+            description=f"Error during scan execution: {str(error)}",
+            location=location,
+            evidence=[evidence],
+            metadata={"owasp_tag": "A05:2021"},
+            compliance_tags=["OWASP-A05:2021"]
+        )
+
+    def execute_scan(self, ctx: ScanContext) -> List[FindingRecord]:
+        """Wrapper method that provides comprehensive error handling and logging."""
+        scanner_name = getattr(self, "name", "unknown")
+        logger.info(f"Starting scan execution for {scanner_name}")
+
+        try:
+            # Validate configuration
+            self.validate_config(ctx)
+            logger.debug(f"Configuration validated for {scanner_name}")
+
+            # Execute the scan
+            findings = self.run(ctx)
+            logger.info(f"Scan completed for {scanner_name}, found {len(findings)} findings")
+
+            return findings
+
+        except Exception as e:
+            logger.exception(f"Scan execution failed for {scanner_name}: {e}")
+            error_finding = self._create_error_finding(e, getattr(ctx.config, "asset", {}).get("address", ""))
+            return [error_finding]
+
     @abstractmethod
     def supports(self, asset: Dict[str, Any], profile: Dict[str, Any]) -> bool:
         """Return True if this adapter should run for given asset/profile."""
@@ -78,22 +112,27 @@ class ScannerAdapter(ABC):
 
 
 def debug_synthetic_finding(
-    scanner_type: str,
+    plugin_key: str,
     title: str,
-    severity: str = Severity.LOW,
+    severity: str = "low",
     category: str = "synthetic/demo",
 ) -> FindingRecord:
     """Helper to emit a synthetic finding when DJANGO_DEBUG=true."""
+    from .types import EvidenceItem
+    evidence = EvidenceItem(
+        kind="synthetic",
+        inline="Synthetic finding for testing",
+        content_type="text/plain"
+    )
     return FindingRecord(
-        scanner_type=scanner_type,
+        plugin_key=plugin_key,
         category=category,
         title=title,
         severity=severity,
         description="Synthetic finding emitted in DEBUG mode for orchestration demo.",
         location=None,
-        evidence_summary="N/A",
-        remediation="N/A",
-        dedup_hash=str(uuid.uuid4()),
+        evidence=[evidence],
+        metadata={"synthetic": True},
     )
 
 

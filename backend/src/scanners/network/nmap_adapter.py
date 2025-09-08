@@ -5,9 +5,10 @@ from typing import Any, Dict, List, Optional
 
 import nmap
 
-from ..base import ScannerAdapter, ScanContext, FindingRecord, is_debug
+from ..base import ScannerAdapter, ScanContext, is_debug
 from ..constants import ScannerType, Severity
 from .. import registry
+from ..types import FindingRecord, EvidenceItem
 
 logger = logging.getLogger(__name__)
 
@@ -41,13 +42,21 @@ class NetworkNmapAdapter(ScannerAdapter):
             return
 
     def _invalid_config_finding(self, reason: str) -> FindingRecord:
+        evidence = EvidenceItem(
+            kind="config_error",
+            inline=f"Nmap configuration error: {reason}",
+            content_type="text/plain",
+            metadata={"reason": reason}
+        )
         return FindingRecord(
-            scanner_type=self.type,
+            plugin_key=self.key,
             category="configuration",
             title="[network.nmap] invalid configuration",
-            severity=Severity.LOW,
+            severity="low",
             description=f"nmap placeholder config invalid: {reason}. Non-fatal; returning no findings.",
-            remediation="Provide 'targets' as a list of IP/CIDR or ensure Asset has url_or_cidr for defaults.",
+            evidence=[evidence],
+            metadata={"owasp_tag": "A05:2021"},
+            compliance_tags=["OWASP-A05:2021"]
         )
 
     def _parse_nmap_results(self, nm: nmap.PortScanner, target: str) -> List[FindingRecord]:
@@ -70,15 +79,29 @@ class NetworkNmapAdapter(ScannerAdapter):
                     if port in [21, 23, 25, 53, 80, 110, 143, 443, 993, 995]:
                         severity = Severity.MEDIUM  # Common vulnerable services
 
+                    evidence = EvidenceItem(
+                        kind="port_scan",
+                        inline=f"Port {port}/{proto} is open, service: {service}",
+                        content_type="text/plain",
+                        metadata={
+                            "port": port,
+                            "protocol": proto,
+                            "service": service,
+                            "state": state,
+                            "product": host[proto][port].get('product', ''),
+                            "version": host[proto][port].get('version', '')
+                        }
+                    )
                     finding = FindingRecord(
-                        scanner_type=self.type,
+                        plugin_key=self.key,
                         category="open_port",
                         title=f"Open port {port}/{proto} ({service})",
-                        severity=severity,
+                        severity=severity.lower(),
                         description=f"Port {port} is open on {target}, running {service}",
                         location=f"{target}:{port}/{proto}",
-                        evidence_summary=f"Service: {service}, State: {state}",
-                        remediation="Review if this port/service should be exposed. Consider firewall rules."
+                        evidence=[evidence],
+                        metadata={"owasp_tag": "A05:2021"},
+                        compliance_tags=["OWASP-A05:2021"]
                     )
                     findings.append(finding)
 
@@ -86,14 +109,26 @@ class NetworkNmapAdapter(ScannerAdapter):
         if 'osmatch' in host and host['osmatch']:
             os_match = host['osmatch'][0]
             if os_match['accuracy'] > 80:
+                evidence = EvidenceItem(
+                    kind="os_detection",
+                    inline=f"OS: {os_match['name']} (accuracy: {os_match['accuracy']}%)",
+                    content_type="text/plain",
+                    metadata={
+                        "os_name": os_match['name'],
+                        "accuracy": os_match['accuracy'],
+                        "os_class": os_match.get('osclass', [])
+                    }
+                )
                 finding = FindingRecord(
-                    scanner_type=self.type,
+                    plugin_key=self.key,
                     category="os_detection",
                     title=f"OS Detected: {os_match['name']}",
-                    severity=Severity.INFO,
+                    severity="info",
                     description=f"Operating system detected: {os_match['name']} (accuracy: {os_match['accuracy']}%)",
                     location=target,
-                    evidence_summary=f"OS: {os_match['name']}"
+                    evidence=[evidence],
+                    metadata={"owasp_tag": "A05:2021"},
+                    compliance_tags=["OWASP-A05:2021"]
                 )
                 findings.append(finding)
 
@@ -109,13 +144,8 @@ class NetworkNmapAdapter(ScannerAdapter):
             if asset_info.get("type") in {"host", "network", "cidr", "ip"} and asset_info.get("url_or_cidr"):
                 targets = [asset_info["url_or_cidr"]]
         if not targets:
-            if is_debug():
-                return [self._invalid_config_finding("missing 'targets' and no network asset default")]
-            return []
-
-        if not is_debug():
-            return []
-
+            return [self._invalid_config_finding("missing 'targets' and no network asset default")]
+        
         findings: List[FindingRecord] = []
 
         try:
@@ -128,13 +158,21 @@ class NetworkNmapAdapter(ScannerAdapter):
 
         except Exception as e:
             logger.error(f"Nmap scan failed: {e}")
+            evidence = EvidenceItem(
+                kind="scan_error",
+                inline=f"Nmap scan failed: {str(e)}",
+                content_type="text/plain",
+                metadata={"error_type": type(e).__name__, "targets": targets}
+            )
             findings.append(FindingRecord(
-                scanner_type=self.type,
+                plugin_key=self.key,
                 category="error",
                 title="Nmap scan error",
-                severity=Severity.MEDIUM,
+                severity="medium",
                 description=f"Error during Nmap scan: {str(e)}",
-                remediation="Ensure nmap is installed and target is reachable."
+                evidence=[evidence],
+                metadata={"owasp_tag": "A05:2021"},
+                compliance_tags=["OWASP-A05:2021"]
             ))
 
         return findings

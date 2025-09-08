@@ -46,9 +46,33 @@ const Report = z.object({
 });
 const ReportsPage = Pagination.extend({ results: z.array(Report) });
 
+const Evidence = z.object({
+  id: z.string(),
+  kind: z.string(),
+  file_url: z.string().optional().nullable(),
+  storage_url: z.string().optional().nullable(),
+  content_type: z.string().optional().nullable(),
+  size: z.number().optional().nullable(),
+  metadata: z.record(z.any()).optional().default({}),
+  correlation_id: z.string().optional().nullable(),
+  correlation_type: z.string().optional().nullable(),
+  tags: z.array(z.string()).optional().default([]),
+  created_at: z.string(),
+  correlated_evidence_count: z.number().optional().default(0),
+  evidence_chain_length: z.number().optional().default(0)
+});
+const EvidencePage = Pagination.extend({ results: z.array(Evidence) });
+
 const DashboardSummary = z.object({
-  severity_counts: z.record(z.string(), z.number()).optional().default({}),
-  scans_last_7d: z.number().optional().default(0)
+  open_by_severity: z.record(z.string(), z.number()).optional().default({}),
+  scans_last_7d: z.number().optional().default(0),
+  new_last_7d: z.number().optional().default(0),
+  top_targets: z.array(z.object({
+    id: z.number(),
+    name: z.string(),
+    open_count: z.number()
+  })).optional().default([]),
+  compliance_counts: z.record(z.string(), z.number()).optional().default({})
 });
 
 /**
@@ -155,7 +179,7 @@ export function useDeleteTarget() {
 /**
  * Scans
  */
-export function useScans(params?: PageParams & { target?: number }) {
+export function useScans(params?: PageParams & { target?: number; status?: string }) {
   return useQuery({
     queryKey: ['scans', params],
     queryFn: async () => {
@@ -242,4 +266,77 @@ export function useCreateReport() {
 export async function downloadReport(reportId: number | string) {
   const resp = await api.get(`/api/v1/reports/${reportId}/download/`, { responseType: 'blob' });
   return resp.data as Blob;
+}
+
+/**
+ * Evidence
+ */
+export function useEvidence(params?: PageParams & { finding?: string; kind?: string; correlation_id?: string }) {
+  return useQuery({
+    queryKey: ['evidence', params],
+    queryFn: async () => {
+      const { data } = await api.get(`/api/v1/evidence/${toQS(params)}`);
+      return EvidencePage.parse(data);
+    }
+  });
+}
+
+export function useEvidenceItem(id?: string) {
+  return useQuery({
+    enabled: !!id,
+    queryKey: ['evidence', 'detail', id],
+    queryFn: async () => {
+      const { data } = await api.get(`/api/v1/evidence/${id}/`);
+      return Evidence.parse(data);
+    }
+  });
+}
+
+export function useEvidenceStats() {
+  return useQuery({
+    queryKey: ['evidence', 'stats'],
+    queryFn: async () => {
+      const { data } = await api.get('/api/v1/evidence/stats/');
+      return data;
+    }
+  });
+}
+
+export function useUploadEvidence() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationKey: ['evidence', 'upload'],
+    mutationFn: async (payload: FormData) => {
+      const { data } = await api.post('/api/v1/evidence/upload/', payload, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      return Evidence.parse(data);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['evidence'] });
+    }
+  });
+}
+
+export async function downloadEvidence(evidenceId: string) {
+  const resp = await api.get(`/api/v1/evidence/${evidenceId}/download/`, { responseType: 'blob' });
+  return resp.data as Blob;
+}
+
+export async function exportFindingsCSV(params?: Record<string, any>) {
+  const resp = await api.get('/api/v1/findings/export-csv/', {
+    params,
+    responseType: 'blob'
+  });
+  return resp.data as Blob;
+}
+
+export function useFindingsTrends() {
+  return useQuery({
+    queryKey: ['findings', 'trends'],
+    queryFn: async () => {
+      const { data } = await api.get('/api/v1/findings/trends/');
+      return data;
+    }
+  });
 }

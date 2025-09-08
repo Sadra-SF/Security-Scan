@@ -28,6 +28,7 @@ def _build_context(report: Report, qs):
     """
     # Simple grouping in-memory; could be improved using aggregation if needed
     grouped = {}
+    findings_list = []
     for f in qs.iterator(chunk_size=1000):
         severity = f.severity or "unknown"
         category = ""
@@ -36,6 +37,16 @@ def _build_context(report: Report, qs):
         grouped.setdefault(severity, {})
         grouped[severity].setdefault(category, [])
         grouped[severity][category].append(f)
+        findings_list.append(f)
+
+    # Generate compliance summary
+    compliance_summary = None
+    try:
+        from compliance.services import ComplianceMappingService
+        compliance_summary = ComplianceMappingService.get_compliance_summary_for_findings(findings_list)
+    except Exception:
+        # Compliance not available or error occurred
+        pass
 
     return {
         "report": report,
@@ -44,6 +55,7 @@ def _build_context(report: Report, qs):
         "generated_at": timezone.now(),
         "findings": qs,
         "grouped": grouped,
+        "compliance_summary": compliance_summary,
     }
 
 
@@ -60,14 +72,9 @@ def _write_html_fallback(content: str) -> str:
     return abs_path
 
 
-@shared_task(name="reports.tasks.generate_report")
-def generate_report(report_id: str) -> None:
+def _generate_report_impl(report_id: str) -> None:
     """
-    Celery task to generate a report. Supports 'pdf' and 'csv'.
-    - For csv: write via temp file then move into storage, set storage_url.
-    - For pdf: render HTML template and, if WeasyPrint available, render to PDF.
-      Otherwise, store the HTML fallback with .html extension.
-    Updates status and generated_at.
+    Core implementation of report generation, shared between sync and async versions.
     """
     try:
         report = Report.objects.select_related("project").get(id=report_id)
@@ -93,13 +100,13 @@ def generate_report(report_id: str) -> None:
             storage_abs_path = move_temp_to_reports_storage(temp_path, final_name)
         elif fmt == "html":
             # Generate HTML report
-            template_name = report.template or "reports/html/scan_report.html"
+            template_name = report.template or "html/scan_report.html"
             context = _build_context(report, qs)
             html = render_report_html(template_name, context)
             storage_abs_path = _write_html_fallback(html)
         elif fmt == "md":
             # Generate Markdown report
-            template_name = report.template or "reports/md/scan_report.md"
+            template_name = report.template or "md/scan_report.md"
             context = _build_context(report, qs)
             md_content = render_report_html(template_name, context)  # Reuse HTML renderer for simplicity
             ensure_reports_storage_dir()
@@ -110,7 +117,7 @@ def generate_report(report_id: str) -> None:
             storage_abs_path = abs_path
         else:
             # Default to PDF
-            template_name = report.template or "reports/pdf/scan_report.html"
+            template_name = report.template or "pdf/scan_report.html"
             context = _build_context(report, qs)
             html = render_report_html(template_name, context)
 
@@ -143,3 +150,22 @@ def generate_report(report_id: str) -> None:
         with transaction.atomic():
             report.status = Report.Status.FAILED
             report.save(update_fields=["status", "updated_at"])
+
+
+def generate_report_sync(report_id: str) -> None:
+    """
+    Synchronous version of generate_report for fallback when Celery is unavailable.
+    """
+    _generate_report_impl(report_id)
+
+
+@shared_task(name="reports.tasks.generate_report")
+def generate_report(report_id: str) -> None:
+    """
+    Celery task to generate a report. Supports 'pdf' and 'csv'.
+    - For csv: write via temp file then move into storage, set storage_url.
+    - For pdf: render HTML template and, if WeasyPrint available, render to PDF.
+      Otherwise, store the HTML fallback with .html extension.
+    Updates status and generated_at.
+    """
+    _generate_report_impl(report_id)

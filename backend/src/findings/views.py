@@ -131,3 +131,91 @@ class FindingViewSet(viewsets.ModelViewSet):
                 "compliance_counts": compliance_counts,
             }
         )
+
+    @action(detail=False, methods=["get"], url_path="trends")
+    def trends(self, request):
+        """
+        Get vulnerability trends over the last 30 days.
+        Returns daily counts of findings by severity.
+        """
+        from datetime import timedelta
+        from django.db.models.functions import TruncDate
+
+        thirty_days_ago = timezone.now() - timedelta(days=30)
+
+        # Get daily counts by severity
+        trends_data = (
+            Finding.objects.filter(created_at__gte=thirty_days_ago)
+            .annotate(date=TruncDate('created_at'))
+            .values('date', 'severity')
+            .annotate(count=Count('id'))
+            .order_by('date', 'severity')
+        )
+
+        # Organize data by date and severity
+        trends = {}
+        for item in trends_data:
+            date_str = item['date'].isoformat()
+            severity = item['severity']
+            count = item['count']
+
+            if date_str not in trends:
+                trends[date_str] = {}
+            trends[date_str][severity] = count
+
+        # Fill in missing dates with zeros
+        current_date = thirty_days_ago.date()
+        end_date = timezone.now().date()
+
+        filled_trends = []
+        while current_date <= end_date:
+            date_str = current_date.isoformat()
+            date_data = trends.get(date_str, {})
+            filled_trends.append({
+                'date': date_str,
+                'critical': date_data.get('critical', 0),
+                'high': date_data.get('high', 0),
+                'medium': date_data.get('medium', 0),
+                'low': date_data.get('low', 0),
+                'info': date_data.get('info', 0),
+                'total': sum(date_data.values())
+            })
+            current_date += timedelta(days=1)
+
+        return Response(filled_trends)
+
+    @action(detail=False, methods=["get"], url_path="export-csv")
+    def export_csv(self, request):
+        """
+        Export findings as CSV file.
+        """
+        import csv
+        from django.http import HttpResponse
+
+        # Get filtered queryset
+        queryset = self.filter_queryset(self.get_queryset())
+
+        # Create CSV response
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="findings.csv"'
+
+        writer = csv.writer(response)
+        writer.writerow([
+            'ID', 'Title', 'Severity', 'Status', 'Target', 'Created At',
+            'Last Seen At', 'Description', 'Locations'
+        ])
+
+        for finding in queryset:
+            writer.writerow([
+                finding.id,
+                finding.title,
+                finding.severity,
+                finding.status,
+                finding.target.name if finding.target else '',
+                finding.created_at.isoformat() if finding.created_at else '',
+                finding.last_seen_at.isoformat() if finding.last_seen_at else '',
+                finding.description or '',
+                finding.locations or ''
+            ])
+
+        return response

@@ -7,6 +7,7 @@ from django.http import Http404, HttpResponse
 from django.core.files.storage import default_storage
 from django.conf import settings
 from django.db.models import Q, Sum
+from django.utils import timezone
 import os
 import logging
 
@@ -321,3 +322,124 @@ class EvidenceViewSet(viewsets.ModelViewSet):
                 {"error": "Stats retrieval failed"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+    @action(detail=False, methods=['get'])
+    def export(self, request):
+        """
+        Export evidence in various formats (JSON, CSV, ZIP).
+        """
+        try:
+            queryset = self.get_queryset()
+            export_format = request.query_params.get('format', 'json')
+            include_files = request.query_params.get('include_files', 'false').lower() == 'true'
+
+            if export_format not in ['json', 'csv', 'zip']:
+                return Response(
+                    {"error": "Invalid format. Supported: json, csv, zip"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            if export_format == 'json':
+                return self._export_json(queryset)
+            elif export_format == 'csv':
+                return self._export_csv(queryset)
+            elif export_format == 'zip':
+                return self._export_zip(queryset, include_files)
+
+        except Exception as e:
+            logger.exception("Evidence export failed: %s", e)
+            return Response(
+                {"error": "Export failed"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    def _export_json(self, queryset):
+        """Export evidence as JSON."""
+        serializer = EvidenceSerializer(queryset, many=True)
+        data = {
+            'export_timestamp': timezone.now().isoformat(),
+            'total_count': queryset.count(),
+            'evidence': serializer.data
+        }
+
+        response = Response(data, content_type='application/json')
+        response['Content-Disposition'] = f'attachment; filename="evidence_export_{timezone.now().strftime("%Y%m%d_%H%M%S")}.json"'
+        return response
+
+    def _export_csv(self, queryset):
+        """Export evidence as CSV."""
+        import csv
+        from io import StringIO
+
+        buffer = StringIO()
+        writer = csv.writer(buffer)
+
+        # Write header
+        writer.writerow([
+            'ID', 'Kind', 'Content Type', 'Size', 'Created At',
+            'Correlation ID', 'Tags', 'File URL', 'Storage URL'
+        ])
+
+        # Write data
+        for evidence in queryset:
+            writer.writerow([
+                evidence.id,
+                evidence.kind,
+                evidence.content_type or '',
+                evidence.size or '',
+                evidence.created_at.isoformat(),
+                evidence.correlation_id or '',
+                ','.join(evidence.tags) if evidence.tags else '',
+                evidence.file_url or '',
+                evidence.storage_url or ''
+            ])
+
+        csv_content = buffer.getvalue()
+        buffer.close()
+
+        response = Response(csv_content, content_type='text/csv')
+        response['Content-Disposition'] = f'attachment; filename="evidence_export_{timezone.now().strftime("%Y%m%d_%H%M%S")}.csv"'
+        return response
+
+    def _export_zip(self, queryset, include_files):
+        """Export evidence as ZIP archive."""
+        import zipfile
+        from io import BytesIO
+
+        buffer = BytesIO()
+
+        with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            # Add metadata file
+            metadata = {
+                'export_timestamp': timezone.now().isoformat(),
+                'total_count': queryset.count(),
+                'include_files': include_files,
+                'evidence': []
+            }
+
+            for evidence in queryset:
+                evidence_data = EvidenceSerializer(evidence).data
+                metadata['evidence'].append(evidence_data)
+
+                # Add file if requested and available
+                if include_files and evidence.file and evidence.file.path:
+                    try:
+                        # Create a safe filename
+                        safe_name = f"{evidence.id}_{evidence.kind}"
+                        if evidence.file.name:
+                            ext = evidence.file.name.split('.')[-1] if '.' in evidence.file.name else ''
+                            if ext:
+                                safe_name += f".{ext}"
+
+                        zip_file.write(evidence.file.path, f"files/{safe_name}")
+                    except Exception as e:
+                        logger.warning(f"Failed to add file {evidence.id} to ZIP: {e}")
+
+            # Add metadata as JSON file
+            import json
+            zip_file.writestr('metadata.json', json.dumps(metadata, indent=2, default=str))
+
+        buffer.seek(0)
+        response = Response(buffer.getvalue(), content_type='application/zip')
+        response['Content-Disposition'] = f'attachment; filename="evidence_export_{timezone.now().strftime("%Y%m%d_%H%M%S")}.zip"'
+        return response

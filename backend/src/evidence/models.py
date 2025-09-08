@@ -6,6 +6,7 @@ from django.db.models import Sum
 from django.utils import timezone
 from django.core.files.storage import default_storage
 from findings.models import Finding
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,7 @@ class Evidence(models.Model):
         LOG = "log", "Log"
         REQUEST = "request", "Request"
         RESPONSE = "response", "Response"
+        REQUEST_RESPONSE = "request_response", "Request/Response"
         ARTIFACT = "artifact", "Artifact"
         OTHER = "other", "Other"
 
@@ -54,6 +56,15 @@ class Evidence(models.Model):
     request_id = models.CharField(max_length=128, blank=True)
     response_id = models.CharField(max_length=128, blank=True)
     metadata = models.JSONField(default=dict, blank=True)
+
+    # Enhanced correlation fields
+    correlation_id = models.CharField(max_length=128, blank=True, help_text="ID for correlating related evidence")
+    correlation_type = models.CharField(max_length=64, blank=True, help_text="Type of correlation (e.g., 'request_response', 'vulnerability_chain')")
+    parent_evidence = models.ForeignKey(
+        'self', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='child_evidence', help_text="Parent evidence for hierarchical relationships"
+    )
+    tags = models.JSONField(default=list, blank=True, help_text="Tags for evidence categorization and search")
     created_at = models.DateTimeField(default=timezone.now, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -62,6 +73,11 @@ class Evidence(models.Model):
         indexes = [
             models.Index(fields=["kind"]),
             models.Index(fields=["created_at"]),
+            models.Index(fields=["correlation_id"]),
+            models.Index(fields=["correlation_type"]),
+            models.Index(fields=["parent_evidence"]),
+            models.Index(fields=["finding", "kind"]),
+            models.Index(fields=["finding", "correlation_id"]),
         ]
 
     def __str__(self) -> str:
@@ -195,3 +211,107 @@ class Evidence(models.Model):
         except Exception as e:
             logger.error(f"Error during orphaned file cleanup: {e}")
             return 0
+
+    @property
+    def correlated_evidence(self):
+        """Get all evidence correlated with this one."""
+        if not self.correlation_id:
+            return Evidence.objects.none()
+
+        return Evidence.objects.filter(
+            correlation_id=self.correlation_id
+        ).exclude(id=self.id)
+
+    @property
+    def evidence_chain(self):
+        """Get the full evidence chain including parent/child relationships."""
+        chain = []
+        current = self
+
+        # Walk up the parent chain
+        while current.parent_evidence:
+            chain.insert(0, current.parent_evidence)
+            current = current.parent_evidence
+
+        chain.append(self)
+
+        # Walk down the child chain
+        children = list(Evidence.objects.filter(parent_evidence=self))
+        while children:
+            child = children.pop(0)
+            chain.append(child)
+            children.extend(list(Evidence.objects.filter(parent_evidence=child)))
+
+        return chain
+
+    def add_tag(self, tag: str):
+        """Add a tag to this evidence."""
+        if tag not in self.tags:
+            self.tags.append(tag)
+            self.save(update_fields=['tags'])
+
+    def remove_tag(self, tag: str):
+        """Remove a tag from this evidence."""
+        if tag in self.tags:
+            self.tags.remove(tag)
+            self.save(update_fields=['tags'])
+
+    @classmethod
+    def correlate_evidence(cls, evidence_ids: list, correlation_type: str = "manual"):
+        """Correlate multiple evidence items together."""
+        if len(evidence_ids) < 2:
+            return
+
+        import uuid
+        correlation_id = str(uuid.uuid4())
+
+        cls.objects.filter(id__in=evidence_ids).update(
+            correlation_id=correlation_id,
+            correlation_type=correlation_type,
+            updated_at=timezone.now()
+        )
+
+    @classmethod
+    def get_evidence_by_correlation(cls, correlation_id: str):
+        """Get all evidence with a specific correlation ID."""
+        return cls.objects.filter(correlation_id=correlation_id)
+
+    @classmethod
+    def get_evidence_by_tags(cls, tags: list, match_all: bool = False):
+        """Get evidence that has any or all of the specified tags."""
+        if not tags:
+            return cls.objects.none()
+
+        if match_all:
+            # Match evidence that has ALL specified tags
+            queryset = cls.objects.all()
+            for tag in tags:
+                queryset = queryset.filter(tags__contains=[tag])
+            return queryset
+        else:
+            # Match evidence that has ANY of the specified tags
+            queryset = cls.objects.none()
+            for tag in tags:
+                queryset = queryset | cls.objects.filter(tags__contains=[tag])
+            return queryset
+
+    @classmethod
+    def analyze_evidence_relationships(cls, finding_id: Optional[int] = None):
+        """Analyze evidence relationships and return insights."""
+        queryset = cls.objects.all()
+        if finding_id:
+            queryset = queryset.filter(finding_id=finding_id)
+
+        total_evidence = queryset.count()
+        correlated_groups = queryset.exclude(correlation_id='').values('correlation_id').distinct().count()
+        tagged_evidence = queryset.exclude(tags=[]).count()
+        evidence_with_parents = queryset.exclude(parent_evidence=None).count()
+
+        return {
+            'total_evidence': total_evidence,
+            'correlated_groups': correlated_groups,
+            'tagged_evidence': tagged_evidence,
+            'evidence_with_parents': evidence_with_parents,
+            'correlation_coverage': correlated_groups / max(total_evidence, 1),
+            'hierarchy_coverage': evidence_with_parents / max(total_evidence, 1),
+        }

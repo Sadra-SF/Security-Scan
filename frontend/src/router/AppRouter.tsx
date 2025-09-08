@@ -2,6 +2,8 @@ import React from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import AppLayout from '@components/../layout/AppLayout';
 import Login from '@pages/Auth/Login';
+import Register from '@pages/Auth/Register';
+import PasswordReset from '@pages/Auth/PasswordReset';
 import Dashboard from '@pages/Dashboard';
 import TargetsList from '@pages/Targets/List';
 import TargetDetail from '@pages/Targets/Detail';
@@ -10,10 +12,8 @@ import ScansList from '@pages/Scans/List';
 import ScanDetail from '@pages/Scans/Detail';
 import FindingsList from '@pages/Findings/List';
 import Reports from '@pages/Reports';
+import Settings from '@pages/Settings';
 import { RequireAuth } from './requireAuth';
-import {
-  SettingsIntegrations
-} from './_tempPlaceholders';
 
 /**
  * Central router with layout; guarded routes render inside AppLayout.
@@ -23,6 +23,8 @@ export default function AppRouter() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/register" element={<Register />} />
+      <Route path="/password-reset" element={<PasswordReset />} />
       <Route
         path="/"
         element={
@@ -40,7 +42,7 @@ export default function AppRouter() {
         <Route path="scans/:id" element={<ScanDetail />} />
         <Route path="findings" element={<FindingsList />} />
         <Route path="reports" element={<Reports />} />
-        <Route path="settings/integrations" element={<SettingsIntegrations />} />
+        <Route path="settings/integrations" element={<Settings />} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

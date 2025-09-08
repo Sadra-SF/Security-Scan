@@ -8,7 +8,18 @@ const LoginResponse = z.object({
   refresh: z.string()
 });
 
+const RegisterResponse = z.object({
+  username: z.string(),
+  email: z.string()
+});
+
+const PasswordResetResponse = z.object({
+  detail: z.string()
+});
+
 type LoginInput = { username: string; password: string };
+type RegisterInput = { username: string; email: string; password: string };
+type PasswordResetInput = { email: string };
 
 export function useAuth() {
   const login = useMutation({
@@ -22,9 +33,27 @@ export function useAuth() {
     }
   });
 
+  const register = useMutation({
+    mutationKey: ['auth', 'register'],
+    mutationFn: async ({ username, email, password }: RegisterInput) => {
+      const { data } = await api.post('/api/auth/users/', { username, email, password });
+      const parsed = RegisterResponse.parse(data);
+      return parsed;
+    }
+  });
+
+  const passwordReset = useMutation({
+    mutationKey: ['auth', 'password-reset'],
+    mutationFn: async ({ email }: PasswordResetInput) => {
+      const { data } = await api.post('/api/auth/users/reset_password/', { email });
+      const parsed = PasswordResetResponse.parse(data);
+      return parsed;
+    }
+  });
+
   const logout = () => {
     clearAuth();
   };
 
-  return { login, logout };
+  return { login, register, passwordReset, logout };
 }

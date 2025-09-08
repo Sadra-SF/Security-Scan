@@ -93,12 +93,27 @@ def _in_maintenance_window(schedule: Schedule, dt) -> bool:
 def compute_next_run(schedule: Schedule, from_dt) -> Optional[timezone.datetime]:
     """
     Compute next run using:
-    1) croniter if available and cron-like fields
-    2) 'cadence' preset in schedule.config: hourly/daily/weekly
+    1) 'cadence' preset in schedule.config: hourly/daily/weekly
+    2) croniter if available and cron-like fields
     3) fallback to simple parsing of minute/hour with */N minutes support
     Returns timezone-aware datetime.
     """
-    # 1) Try croniter
+    # 1) cadence preset in config
+    cadence = None
+    try:
+        cfg = schedule.config or {}
+        cadence = (cfg.get("cadence") or cfg.get("schedule") or "").lower()
+    except Exception:
+        cadence = None
+
+    if cadence == "hourly":
+        return from_dt + timedelta(hours=1)
+    if cadence == "daily":
+        return from_dt + timedelta(days=1)
+    if cadence == "weekly":
+        return from_dt + timedelta(weeks=1)
+
+    # 2) Try croniter
     minute = schedule.minute or "*"
     hour = schedule.hour or "*"
     day_of_week = schedule.day_of_week or "*"
@@ -115,21 +130,6 @@ def compute_next_run(schedule: Schedule, from_dt) -> Optional[timezone.datetime]
         return nxt
     except Exception:
         pass
-
-    # 2) cadence preset in config
-    cadence = None
-    try:
-        cfg = schedule.config or {}
-        cadence = (cfg.get("cadence") or cfg.get("schedule") or "").lower()
-    except Exception:
-        cadence = None
-
-    if cadence == "hourly":
-        return from_dt + timedelta(hours=1)
-    if cadence == "daily":
-        return from_dt + timedelta(days=1)
-    if cadence == "weekly":
-        return from_dt + timedelta(weeks=1)
 
     # 3) very small fallback: support */N in minute only, else default 1 hour
     try:

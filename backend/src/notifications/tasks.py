@@ -54,9 +54,9 @@ def _safe_requests_post(url: str, json_payload: Dict[str, Any], headers: Dict[st
 
 
 def _render_email(scan: Scan, context: Dict[str, Any]) -> Tuple[str, str]:
-    txt = render_to_string("notifications/email/scan_summary.txt", context)
+    txt = render_to_string("email/scan_summary.txt", context)
     try:
-        html = render_to_string("notifications/email/scan_summary.html", context)
+        html = render_to_string("email/scan_summary.html", context)
     except Exception:
         html = ""
     return txt, html
@@ -293,5 +293,85 @@ def dispatch_event(event_type: str, payload_id: str) -> Dict[str, Any]:
                         "info": f"exception:{type(e).__name__}:{e}",
                     }
                 )
+
+    return {"dispatched": success_count, "results": results}
+
+
+def dispatch_event_sync(event_type: str, payload_id: str) -> Dict[str, Any]:
+    """
+    Synchronous version of dispatch_event for fallback when Celery fails.
+    event_type in {"scan.completed","scan.failed","severity.threshold"}
+    payload_id is Scan.id in this scope.
+    """
+    try:
+        scan = Scan.objects.select_related("target", "target__project", "target__project__organization").get(pk=payload_id)
+    except ObjectDoesNotExist:
+        logger.error("notifications sync dispatch payload not found event_type=%s payload_id=%s", event_type, payload_id)
+        return {"dispatched": 0, "errors": ["payload_not_found"]}
+
+    context = _build_context(scan)
+    matched = _match_rules(scan, event_type)
+
+    results: List[Dict[str, Any]] = []
+    success_count = 0
+
+    for rule in matched:
+        channel = rule.channel
+        try:
+            if not _should_fire_for_rule(rule, event_type, context):
+                logger.info(
+                    "notify sync skip event=%s project_id=%s channel_id=%s rule_id=%s reason=threshold",
+                    event_type,
+                    context.get("project_id"),
+                    str(channel.id),
+                    str(rule.id),
+                )
+                continue
+
+            ok, info = _dispatch_channel(channel, event_type, context)
+            results.append(
+                {
+                    "rule_id": str(rule.id),
+                    "channel_id": str(channel.id),
+                    "ok": ok,
+                    "info": info,
+                }
+            )
+            if ok:
+                success_count += 1
+                logger.info(
+                    "notify sync sent event=%s project_id=%s channel_id=%s rule_id=%s",
+                    event_type,
+                    context.get("project_id"),
+                    str(channel.id),
+                    str(rule.id),
+                )
+            else:
+                logger.warning(
+                    "notify sync failure event=%s project_id=%s channel_id=%s rule_id=%s info=%s channel_cfg=%s",
+                    event_type,
+                    context.get("project_id"),
+                    str(channel.id),
+                    str(rule.id),
+                    info,
+                    _redact_config(channel.config or {}),
+                )
+        except Exception as e:
+            logger.exception(
+                "notify sync exception event=%s project_id=%s channel_id=%s rule_id=%s err=%s",
+                event_type,
+                context.get("project_id"),
+                str(getattr(rule, "channel_id", "")),
+                str(getattr(rule, "id", "")),
+                e,
+            )
+            results.append(
+                {
+                    "rule_id": str(getattr(rule, "id", "")),
+                    "channel_id": str(getattr(rule, "channel_id", "")),
+                    "ok": False,
+                    "info": f"exception:{type(e).__name__}:{e}",
+                }
+            )
 
     return {"dispatched": success_count, "results": results}

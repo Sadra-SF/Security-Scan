@@ -2,7 +2,7 @@ import os
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
-from projects.models import Project
+from projects.models import Project, Organization
 from reports.models import Report
 from reports.tasks import generate_report
 
@@ -10,7 +10,8 @@ from reports.tasks import generate_report
 @override_settings(CELERY_TASK_ALWAYS_EAGER=True)
 class ReportGenerationTests(TestCase):
     def setUp(self):
-        self.project = Project.objects.create(name="Test Project", description="Demo")
+        self.org = Organization.objects.create(name="Test Org", slug="test-org")
+        self.project = Project.objects.create(name="Test Project", description="Demo", organization=self.org)
 
     def test_generate_report_csv_eager(self):
         report = Report.objects.create(

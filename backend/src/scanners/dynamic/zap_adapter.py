@@ -7,9 +7,10 @@ from typing import Any, Dict, List, Optional
 
 from zapv2 import ZAPv2
 
-from ..base import ScannerAdapter, ScanContext, FindingRecord, debug_synthetic_finding, is_debug
+from ..base import ScannerAdapter, ScanContext, debug_synthetic_finding, is_debug
 from ..constants import ScannerType, Severity
 from .. import registry
+from ..types import FindingRecord, EvidenceItem
 
 logger = logging.getLogger(__name__)
 
@@ -47,13 +48,21 @@ class DynamicZapAdapter(ScannerAdapter):
             return
 
     def _invalid_config_finding(self, reason: str) -> FindingRecord:
+        evidence = EvidenceItem(
+            kind="config_error",
+            inline=f"ZAP configuration error: {reason}",
+            content_type="text/plain",
+            metadata={"reason": reason}
+        )
         return FindingRecord(
-            scanner_type=self.type,
+            plugin_key=self.key,
             category="configuration",
             title="[dynamic.zap] invalid configuration",
-            severity=Severity.LOW,
+            severity="low",
             description=f"ZAP placeholder config invalid: {reason}. This is a non-fatal warning; returning no findings.",
-            remediation="Provide required keys such as 'url' and a valid 'mode' (baseline|active).",
+            evidence=[evidence],
+            metadata={"owasp_tag": "A05:2021"},
+            compliance_tags=["OWASP-A05:2021"]
         )
 
     def _start_zap_daemon(self, zap_path: str = "zap.sh", host: str = "127.0.0.1", port: int = 8080) -> bool:
@@ -80,23 +89,41 @@ class DynamicZapAdapter(ScannerAdapter):
         findings = []
         for alert in alerts:
             severity_map = {
-                "Informational": Severity.INFO,
-                "Low": Severity.LOW,
-                "Medium": Severity.MEDIUM,
-                "High": Severity.HIGH
+                "Informational": "info",
+                "Low": "low",
+                "Medium": "medium",
+                "High": "high"
             }
-            severity = severity_map.get(alert.get("risk", "Low"), Severity.LOW)
+            severity = severity_map.get(alert.get("risk", "Low"), "low")
+
+            evidence = EvidenceItem(
+                kind="zap_alert",
+                inline=alert.get("evidence", ""),
+                content_type="text/plain",
+                metadata={
+                    "plugin_id": alert.get("pluginId", ""),
+                    "cwe_id": alert.get("cweid", ""),
+                    "wasc_id": alert.get("wascid", ""),
+                    "alert_ref": alert.get("alertRef", ""),
+                    "confidence": alert.get("confidence", "")
+                }
+            )
 
             finding = FindingRecord(
-                scanner_type=self.type,
+                plugin_key=self.key,
                 category=alert.get("alert", "").lower().replace(" ", "_"),
                 title=f"ZAP: {alert.get('alert', 'Unknown')}",
                 severity=severity,
                 description=alert.get("description", ""),
                 location=alert.get("url", url),
-                evidence_summary=alert.get("evidence", ""),
-                remediation=alert.get("solution", ""),
-                dedup_hash=f"zap_{alert.get('pluginId', '')}_{alert.get('url', '')}"
+                evidence=[evidence],
+                metadata={
+                    "owasp_tag": "A03:2021",
+                    "zap_plugin_id": alert.get("pluginId", ""),
+                    "zap_cwe": alert.get("cweid", ""),
+                    "zap_wasc": alert.get("wascid", "")
+                },
+                compliance_tags=["OWASP-A03:2021"]
             )
             findings.append(finding)
         return findings
@@ -110,25 +137,28 @@ class DynamicZapAdapter(ScannerAdapter):
         zap_path = (cfg or {}).get("zap_path", "zap.sh")
 
         if not url:
-            if is_debug():
-                return [self._invalid_config_finding("missing 'url'")]
-            return []
-
-        if not is_debug():
-            return []
-
+            return [self._invalid_config_finding("missing 'url'")]
+        
         findings: List[FindingRecord] = []
 
         try:
             # Start ZAP if needed
             if not self._start_zap_daemon(zap_path, zap_host, zap_port):
+                evidence = EvidenceItem(
+                    kind="zap_startup_error",
+                    inline="Failed to start ZAP daemon",
+                    content_type="text/plain",
+                    metadata={"zap_path": zap_path, "host": zap_host, "port": zap_port}
+                )
                 findings.append(FindingRecord(
-                    scanner_type=self.type,
+                    plugin_key=self.key,
                     category="configuration",
                     title="ZAP daemon failed to start",
-                    severity=Severity.HIGH,
+                    severity="high",
                     description="Unable to start OWASP ZAP daemon for scanning.",
-                    remediation="Ensure ZAP is installed and zap.sh is in PATH, or provide correct zap_path."
+                    evidence=[evidence],
+                    metadata={"owasp_tag": "A05:2021"},
+                    compliance_tags=["OWASP-A05:2021"]
                 ))
                 return findings
 
@@ -153,14 +183,29 @@ class DynamicZapAdapter(ScannerAdapter):
                 while int(zap.ascan.status()) < 100:
                     time.sleep(5)
                 alerts = zap.core.alerts(baseurl=url)
+            elif mode == "api":
+                # Run API scan
+                zap.openapi.import_url(url)
+                zap.ascan.scan(url)
+                while int(zap.ascan.status()) < 100:
+                    time.sleep(5)
+                alerts = zap.core.alerts(baseurl=url)
             else:
+                evidence = EvidenceItem(
+                    kind="config_error",
+                    inline=f"Unknown scan mode: {mode}",
+                    content_type="text/plain",
+                    metadata={"provided_mode": mode, "supported_modes": ["baseline", "active", "api"]}
+                )
                 findings.append(FindingRecord(
-                    scanner_type=self.type,
+                    plugin_key=self.key,
                     category="configuration",
                     title="Unknown ZAP scan mode",
-                    severity=Severity.LOW,
-                    description=f"Mode '{mode}' not supported. Use 'baseline' or 'active'.",
-                    remediation="Configure mode as 'baseline' or 'active'."
+                    severity="low",
+                    description=f"Mode '{mode}' not supported. Use 'baseline', 'active', or 'api'.",
+                    evidence=[evidence],
+                    metadata={"owasp_tag": "A05:2021"},
+                    compliance_tags=["OWASP-A05:2021"]
                 ))
                 return findings
 
@@ -169,13 +214,21 @@ class DynamicZapAdapter(ScannerAdapter):
 
         except Exception as e:
             logger.error(f"ZAP scan failed: {e}")
+            evidence = EvidenceItem(
+                kind="scan_error",
+                inline=f"ZAP scan failed: {str(e)}",
+                content_type="text/plain",
+                metadata={"error_type": type(e).__name__, "url": url, "mode": mode}
+            )
             findings.append(FindingRecord(
-                scanner_type=self.type,
+                plugin_key=self.key,
                 category="error",
                 title="ZAP scan error",
-                severity=Severity.MEDIUM,
+                severity="medium",
                 description=f"Error during ZAP scan: {str(e)}",
-                remediation="Check ZAP configuration and target URL accessibility."
+                evidence=[evidence],
+                metadata={"owasp_tag": "A05:2021"},
+                compliance_tags=["OWASP-A05:2021"]
             ))
 
         return findings

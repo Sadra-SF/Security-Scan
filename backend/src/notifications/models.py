@@ -39,6 +39,8 @@ class NotificationRule(models.Model):
         SCAN_COMPLETED = "scan_completed", "Scan Completed"
         FINDING_CREATED = "finding_created", "Finding Created"
         FINDING_UPDATED = "finding_updated", "Finding Updated"
+        COMPLIANCE_VIOLATION = "compliance_violation", "Compliance Violation"
+        COMPLIANCE_ASSESSMENT_COMPLETED = "compliance_assessment_completed", "Compliance Assessment Completed"
 
     class SeverityThreshold(models.TextChoices):
         INFO = "info", "Info"
